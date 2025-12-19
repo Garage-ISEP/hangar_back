@@ -931,29 +931,49 @@ async fn persist_project_with_rollback(
         .await
         .map_err(|_| AppError::InternalServerError)?;
 
-    let new_project = create_project_in_transaction(
-        &mut tx,
-        state,
-        payload,
-        user_login,
-        container_name,
-        deployment_source,
-        deployed_image_digest,
-        volume_name,
-    ).await?;
-
-    if payload.create_database.unwrap_or(false)
+    let db_operations = async 
     {
-        provision_database_in_transaction(&mut tx, state, user_login, new_project.id).await?;
+        let new_project = create_project_in_transaction(
+            &mut tx,
+            state,
+            payload,
+            user_login,
+            container_name,
+            deployment_source,
+            deployed_image_digest,
+            volume_name,
+        ).await?;
+
+        if payload.create_database.unwrap_or(false)
+        {
+            provision_database_in_transaction(&mut tx, state, user_login, new_project.id).await?;
+        }
+
+        add_participants_in_transaction(&mut tx, new_project.id, participants).await?;
+
+        Ok(new_project)
+    };
+
+    match db_operations.await 
+    {
+        Ok(project) => 
+        {
+            tx.commit().await.map_err(|_| AppError::InternalServerError)?;
+            Ok(project)
+        }
+        Err(e) => 
+        {
+            warn!("Database transaction failed. Rolling back Docker resources for container '{}'...", container_name);
+            let _ = docker_service::remove_container(&state.docker_client, container_name).await;
+            if let Some(vol) = volume_name 
+            {
+                let _ = docker_service::remove_volume_by_name(&state.docker_client, vol).await;
+            }
+            remove_image_best_effort(state, &deployment_source.image_tag).await;
+            
+            Err(e)
+        }
     }
-
-    add_participants_in_transaction(&mut tx, new_project.id, participants).await?;
-
-    tx.commit()
-        .await
-        .map_err(|_| AppError::InternalServerError)?;
-
-    Ok(new_project)
 }
 
 async fn create_project_in_transaction(
@@ -967,7 +987,7 @@ async fn create_project_in_transaction(
     volume_name: &Option<String>,
 ) -> Result<crate::model::project::Project, AppError>
 {
-    match project_service::create_project(
+    project_service::create_project(
         tx,
         &payload.project_name,
         user_login,
@@ -982,17 +1002,11 @@ async fn create_project_in_transaction(
         &payload.persistent_volume_path,
         volume_name,
         &state.config.encryption_key,
-    ).await
+    ).await.map_err(|e| 
     {
-        Ok(project) => Ok(project),
-        Err(db_error) =>
-        {
-            warn!("DB persistence failed, rolling back container and image...");
-            let _ = docker_service::remove_container(&state.docker_client, &container_name).await;
-            let _ = docker_service::remove_image(&state.docker_client, &deployment_source.image_tag).await;
-            Err(db_error)
-        }
-    }
+        error!("Failed to persist project in DB: {}", e);
+        e
+    })
 }
 
 async fn provision_database_in_transaction(
