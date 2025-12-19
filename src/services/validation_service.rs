@@ -1,7 +1,7 @@
 use crate::error::{AppError, ProjectErrorCode};
 use std::collections::{HashMap, HashSet};
 
-pub fn validate_project_name(name: &str) -> Result<(), AppError>
+pub fn validate_project_name(name: &str) -> Result<String, AppError>
 {
     if name.is_empty() 
     {
@@ -22,8 +22,8 @@ pub fn validate_project_name(name: &str) -> Result<(), AppError>
     {
         return Err(ProjectErrorCode::InvalidProjectName.into());
     }
-
-    Ok(())
+    
+    Ok(name.to_lowercase())
 }
 
 pub fn validate_image_url(url: &str) -> Result<(), AppError> 

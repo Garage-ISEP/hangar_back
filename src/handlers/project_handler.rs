@@ -117,10 +117,10 @@ struct BlueGreenDeployment
 pub async fn deploy_project_handler(
     State(state): State<AppState>,
     claims: Claims,
-    Json(payload): Json<DeployPayload>,
+    Json(mut payload): Json<DeployPayload>,
 ) -> Result<impl IntoResponse, AppError>
 {
-    validate_deploy_payload(&payload)?;
+    validate_deploy_payload(&mut payload)?;
     
     let user_login = claims.sub;
 
@@ -495,9 +495,9 @@ pub async fn update_env_vars_handler(
 // Private Helper Functions - Validation
 // ============================================================================
 
-fn validate_deploy_payload(payload: &DeployPayload) -> Result<(), AppError>
+fn validate_deploy_payload(payload: &mut DeployPayload) -> Result<(), AppError>
 {
-    validation_service::validate_project_name(&payload.project_name)?;
+    payload.project_name = validation_service::validate_project_name(&payload.project_name)?;
 
     if let Some(vars) = &payload.env_vars
     {
