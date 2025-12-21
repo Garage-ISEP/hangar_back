@@ -188,7 +188,7 @@ pub async fn create_project_container(
         ..Default::default()
     };
 
-    let options = Some(CreateContainerOptionsBuilder::new().name(&container_name).build());
+    let options = Some(CreateContainerOptionsBuilder::new().name(container_name).build());
 
     let response = docker.create_container(options, config).await.map_err(|e| 
     {
@@ -212,7 +212,7 @@ pub async fn create_project_container(
         ProjectErrorCode::ContainerCreationFailed
     })?;
 
-    docker.start_container(&container_name, None::<StartContainerOptions>).await.map_err(|e| 
+    docker.start_container(container_name, None::<StartContainerOptions>).await.map_err(|e| 
     {
         error!("Failed to start container '{}': {}", container_name, e);
         

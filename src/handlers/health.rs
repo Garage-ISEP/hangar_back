@@ -46,17 +46,15 @@ impl HealthCheckResponse
 {
     fn compute_global_status(components: &HealthComponents) -> HealthStatus
     {
-        let statuses = vec![
-            components.postgres.status,
+        let statuses = [components.postgres.status,
             components.mariadb.status,
-            components.docker.status,
-        ];
+            components.docker.status];
 
-        if statuses.iter().any(|s| *s == HealthStatus::Unhealthy)
+        if statuses.contains(&HealthStatus::Unhealthy)
         {
             HealthStatus::Unhealthy
         }
-        else if statuses.iter().any(|s| *s == HealthStatus::Degraded)
+        else if statuses.contains(&HealthStatus::Degraded)
         {
             HealthStatus::Degraded
         }

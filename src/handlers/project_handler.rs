@@ -523,7 +523,7 @@ fn validate_project_source(
     operation: &str,
 ) -> Result<(), AppError>
 {
-    if !matches!(actual, ref t if **t == expected)
+    if !matches!(actual, t if *t == expected)
     {
         let source_name = match expected
         {
@@ -784,16 +784,12 @@ async fn pull_image_with_error_handling(state: &AppState, image_url: &str) -> Re
         Err(e) =>
         {
             if image_url.starts_with("ghcr.io/")
-            {
-                if let bollard::errors::Error::DockerResponseServerError { status_code, .. } = &e
-                {
-                    if *status_code == 401 || *status_code == 403
+                && let bollard::errors::Error::DockerResponseServerError { status_code, .. } = &e
+                    && (*status_code == 401 || *status_code == 403)
                     {
                         warn!("Failed to pull private image from ghcr.io: {}", image_url);
                         return Err(ProjectErrorCode::GithubPackageNotPublic.into());
                     }
-                }
-            }
 
             error!("Failed to pull image '{}': {}", image_url, e);
             Err(ProjectErrorCode::ImagePullFailed.into())
@@ -891,12 +887,10 @@ async fn wait_for_container_health(
 async fn is_container_healthy(state: &AppState, container_name: &str) -> Result<bool, AppError>
 {
     if let Ok(Some(details)) = docker_service::inspect_container_details(&state.docker_client, container_name).await
-    {
-        if let Some(container_state) = details.state
+        && let Some(container_state) = details.state
         {
             return Ok(container_state.running.unwrap_or(false));
         }
-    }
     Ok(false)
 }
 
@@ -1269,7 +1263,7 @@ async fn execute_blue_green_deployment(
     ).await?;
 
     wait_for_container_health(state, &deployment.new_container_name, 10).await
-        .map_err(|e|
+        .inspect_err(|_|
         {
             let docker = state.docker_client.clone();
             let container = deployment.new_container_name.clone();
@@ -1280,12 +1274,10 @@ async fn execute_blue_green_deployment(
                 let _ = docker_service::remove_container(&docker, &container).await;
                 let _ = docker_service::remove_image(&docker, &image).await;
             });
-            
-            e
         })?;
 
     update_project_metadata(state, project.id, deployment, &project.source).await
-        .map_err(|e| 
+        .inspect_err(|_| 
         {
             error!("Failed to update project metadata. Rolling back new container...");
             
@@ -1298,8 +1290,6 @@ async fn execute_blue_green_deployment(
                 let _ = docker_service::remove_container(&docker, &container).await;
                 let _ = docker_service::remove_image(&docker, &image).await;
             });
-            
-            e
         })?;
 
 
@@ -1322,7 +1312,7 @@ async fn create_new_container_for_deployment(
 {
     let owned_env_vars: Option<HashMap<String, String>> = env_vars.cloned();
 
-    docker_service::create_project_container(
+    match docker_service::create_project_container(
         &state.docker_client,
         &deployment.new_container_name,
         &project.name,
@@ -1331,12 +1321,15 @@ async fn create_new_container_for_deployment(
         &owned_env_vars,
         &project.persistent_volume_path,
     ).await
-    .map_err(|creation_error|
     {
-        error!("Failed to create new container for project '{}'. Aborting update.", project.name);
-        let _ = docker_service::remove_image(&state.docker_client, &deployment.new_image_tag);
-        creation_error
-    })?;
+        Ok(volume) => Ok(volume),
+        Err(e) =>
+        {
+            error!("Failed to create new container for project '{}'. Aborting update.", project.name);
+            let _ = docker_service::remove_image(&state.docker_client, &deployment.new_image_tag).await;
+            Err(e)
+        }
+    }?;
 
     Ok(())
 }
@@ -1422,14 +1415,13 @@ async fn execute_env_vars_blue_green_deployment(
         &Some(env_vars.clone()),
         &project.persistent_volume_path,
     ).await
-    .map_err(|creation_error|
+    .inspect_err(|_|
     {
         error!("Failed to recreate container for project '{}' during env update. Aborting.", project.name);
-        creation_error
     })?;
 
     wait_for_container_health(state, &deployment.new_container_name, 10).await
-        .map_err(|e|
+        .inspect_err(|_|
         {
             let docker = state.docker_client.clone();
             let container = deployment.new_container_name.clone();
@@ -1438,8 +1430,6 @@ async fn execute_env_vars_blue_green_deployment(
             {
                 let _ = docker_service::remove_container(&docker, &container).await;
             });
-            
-            e
         })?;
 
     project_service::update_project_container_name(

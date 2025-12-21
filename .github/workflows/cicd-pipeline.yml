@@ -9,9 +9,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Job 1: Linting et formatage
+  # Job 1: Linting
   lint:
-    name: Lint and Format Check
+    name: Lint Check
     runs-on: ubuntu-latest
     
     steps:
