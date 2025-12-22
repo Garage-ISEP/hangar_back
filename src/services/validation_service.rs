@@ -223,6 +223,7 @@ mod tests {
         assert!(validate_source_root_dir("/absolute").is_err());
         assert!(validate_source_root_dir("../outside").is_err());
         assert!(validate_source_root_dir("dossier/../secret").is_err());
+        assert!(validate_source_root_dir("foo/../bar").is_err());
         assert!(validate_source_root_dir("my.git").is_err());
         assert!(validate_source_root_dir(".ssh/config").is_err());
     }
