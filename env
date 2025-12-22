@@ -1,0 +1,55 @@
+# Application
+APP_PREFIX=hangar
+APP_DOMAIN_SUFFIX=hangar.garageisep.com
+BUILD_BASE_IMAGE=ghcr.io/garage-isep/nginx-php-base:latest
+
+APP_ADMINS=your_cas_login
+
+APP_HOST=0.0.0.0
+APP_PORT=3000
+
+# Adresse publique finale de l'application (doit correspondre à la configuration de Traefik)
+APP_PUBLIC_ADDRESS=https://hangar.garageisep.com
+
+APP_JWT_SECRET=
+JWT_EXPIRATION_SECONDS=3600
+
+APP_ENCRYPTION_KEY=
+
+# URL du service CAS
+CAS_VALIDATION_URL=https://portail-ovh.isep.fr/cas/serviceValidate
+
+# Github 
+GITHUB_APP_ID=
+# Commande pour encoder : base64 -w 0 < cle.pem
+GITHUB_PRIVATE_KEY_B64=
+# Docker & Traefik
+DOCKER_NETWORK=traefik-net
+DOCKER_TRAEFIK_ENTRYPOINT=websecure
+DOCKER_TRAEFIK_CERTRESOLVER=cloudflare
+
+# Limites des conteneurs
+DOCKER_CONTAINER_MEMORY_MB=512
+DOCKER_CONTAINER_CPU_QUOTA=50000
+
+# Sécurité
+GRYPE_ENABLED=false
+GRYPE_FAIL_ON_SEVERITY=high
+
+# Base de données
+DB_MAX_CONNECTIONS=10
+
+DATABASE_URL=postgres://hangar_user:secret1@hangar-postgres:5432/hangar_db
+
+MARIADB_URL=mysql://root:secret2@hangar-mariadb:3306
+
+MARIADB_PUBLIC_HOST=
+MARIADB_PUBLIC_PORT=3306
+MARIADB_ROOT_PASSWORD=
+
+# Timeouts HTTP
+TIMEOUT_SECONDS_NORMAL=10
+TIMEOUT_SECONDS_LONG=300
+
+# Configuration des logs
+RUST_LOG=info,pdf_hoster=info,tower_http=info

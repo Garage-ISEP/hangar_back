@@ -1,0 +1,100 @@
+services:
+  hangar-front:
+    image: ghcr.io/garage-isep/hangar-front:latest
+    container_name: hangar-front
+    restart: unless-stopped
+    networks:
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.hangar-front.rule=Host(`hangar.garageisep.com`)"
+      - "traefik.http.routers.hangar-front.entrypoints=websecure"
+      - "traefik.http.routers.hangar-front.tls.certresolver=cloudflare"
+      - "traefik.http.services.hangar-front.loadbalancer.server.port=80"
+    depends_on:
+      - hangar-back
+ 
+  hangar-back:
+    image: ghcr.io/garage-isep/hangar-back:latest
+    container_name: hangar-back
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - traefik-net
+      - hangar-internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      hangar-postgres:
+        condition: service_healthy
+      hangar-mariadb:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.hangar-back.rule=Host(`hangar.garageisep.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.hangar-back.entrypoints=websecure"
+      - "traefik.http.routers.hangar-back.tls.certresolver=cloudflare"
+      - "traefik.http.services.hangar-back.loadbalancer.server.port=3000"
+
+  hangar-postgres:
+    container_name: hangar-postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    volumes:
+      - ./postgresql_data:/var/lib/postgresql/data
+    networks:
+      - hangar-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d hangar_db -U hangar_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      POSTGRES_USER: 'hangar_user'
+      POSTGRES_PASSWORD: 'secret1'
+      POSTGRES_DB: 'hangar_db'
+
+  hangar-mariadb:
+    container_name: hangar-mariadb
+    image: mariadb:lts
+    restart: unless-stopped
+    networks:
+      - hangar-internal
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      MARIADB_ROOT_PASSWORD: "secret2"
+  phpmyadmin:
+   image: phpmyadmin:latest
+   container_name: hangar-phpmyadmin
+   restart: unless-stopped
+   networks:
+     - traefik-net
+     - hangar-internal
+   environment:
+     PMA_HOST: hangar-mariadb
+     PMA_PORT: 3306
+     PMA_ABSOLUTE_URI: https://phpmyadmin.hangar.garageisep.com/
+   labels:
+     - "traefik.enable=true"
+     - "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.hangar.garageisep.com`)"
+     - "traefik.http.routers.phpmyadmin.entrypoints=websecure"
+     - "traefik.http.routers.phpmyadmin.tls.certresolver=cloudflare"
+     - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
+   depends_on:
+     - hangar-mariadb
+networks:
+  hangar-internal:
+    driver: bridge
+    name: hangar-internal
+  traefik-net:
+    external: true
