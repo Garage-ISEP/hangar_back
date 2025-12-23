@@ -1,14 +1,6 @@
-mod config;
-mod error;
-mod handlers;
-mod router;
-mod state;
-mod services;
-mod model;
-mod middleware;
-
-use crate::config::Config;
-use crate::state::InnerState;
+use hangar_back::config::Config;
+use hangar_back::state::InnerState;
+use hangar_back::router;
 
 use std::net::{SocketAddr, Ipv4Addr};
 use sqlx::postgres::PgPoolOptions;

@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Examples
 /// ```
-/// # use hangar::services::validation_service::validate_project_name;
+/// # use hangar_back::services::validation_service::validate_project_name;
 /// assert!(validate_project_name("Mon-Projet").is_ok());
 /// assert_eq!(validate_project_name("Mon-Projet").unwrap(), "mon-projet");
 /// assert!(validate_project_name("-invalid").is_err());
