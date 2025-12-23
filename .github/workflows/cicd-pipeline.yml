@@ -113,43 +113,14 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Get current week
-        id: week
-        run: echo "week=$(date +%Y-W%V)" >> $GITHUB_OUTPUT
-
-      - name: Get current week
-        id: week
-        run: echo "week=$(date +%Y-W%V)" >> $GITHUB_OUTPUT
-
-      - name: Cache Cargo
+      - name: Cache cargo-audit binary
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-${{ steps.week.outputs.week }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ steps.week.outputs.week }}-
-            ${{ runner.os }}-cargo-
-          
-      - name: Install or update cargo-audit
-        run: |
-          if command -v cargo-audit &> /dev/null; then
-            echo "cargo-audit found, checking version..."
-            INSTALLED=$(cargo audit --version | grep -oP '\d+\.\d+\.\d+' || echo "0.0.0")
-            LATEST=$(cargo search cargo-audit --limit 1 | grep -oP '\d+\.\d+\.\d+' | head -1)
-            echo "Installed: $INSTALLED, Latest: $LATEST"
-            if [ "$INSTALLED" != "$LATEST" ]; then
-              echo "Updating cargo-audit..."
-              cargo install cargo-audit --locked --force
-            else
-              echo "cargo-audit is up to date"
-            fi
-          else
-            echo "cargo-audit not found, installing..."
-            cargo install cargo-audit --locked
-          fi
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('~/.cargo/bin/cargo-audit') }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --force
 
       - name: Run security audit (SARIF)
         id: audit
