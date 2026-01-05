@@ -20,14 +20,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::
 {
-    error::{AppError, DatabaseErrorCode, ProjectErrorCode},
-    model::project::{ProjectDetailsResponse, ProjectMetrics, ProjectSourceType},
-    services::
+    error::{AppError, DatabaseErrorCode, ProjectErrorCode}, model::project::{ProjectDetailsResponse, ProjectMetrics, ProjectSourceType}, services::
     {
-        crypto_service, database_service, docker_service, github_service,
-        jwt::Claims, project_service, validation_service,
-    },
-    state::AppState,
+        crypto_service, database_service, deployment_orchestrator::DeploymentOrchestrator, docker_service, github_service, jwt::Claims, project_service, validation_service
+    }, sse::types::DeploymentStage, state::AppState
 };
 
 // ============================================================================
@@ -120,41 +116,87 @@ pub async fn deploy_project_handler(
     Json(mut payload): Json<DeployPayload>,
 ) -> Result<impl IntoResponse, AppError>
 {
-    validate_deploy_payload(&mut payload)?;
+    let mut orchestrator = DeploymentOrchestrator::for_creation
+    (
+        &state,
+        payload.project_name.clone(),
+        claims.sub.clone(),
+    );
+    
+    orchestrator.emit_stage(DeploymentStage::Started).await;
+
+    orchestrator.with_stage
+    (
+        DeploymentStage::ValidatingInput,
+        "Input validation",
+        validate_deploy_payload(&mut payload),
+    ).await?;
+
     
     let user_login = claims.sub;
 
-    check_deployment_preconditions(&state, &user_login, &payload).await?;
+    orchestrator.with_stage
+    (
+        DeploymentStage::ValidatingInput,
+        "Preconditions check",
+        check_deployment_preconditions(&state, &user_login, &payload),
+    ).await?;
 
     let participants = prepare_participants(payload.participants.clone(), &user_login)?;
 
-    let deployment_source = prepare_deployment_source(&state, &payload).await?;
+    let deployment_source = prepare_deployment_source_with_events
+    (
+        &state, 
+        &payload, 
+        &orchestrator
+    ).await?;
 
-    let deployed_image_digest = match get_image_digest(&state, &deployment_source.image_tag).await 
-    {
-        Ok(digest) => digest,
-        Err(e) => 
-        {
-            error!("Failed to retrieve image digest for '{}': {}", &deployment_source.image_tag, e);
-            remove_image_best_effort(&state, &deployment_source.image_tag).await;
-            return Err(AppError::InternalServerError);
-        }
-    };
+    let deployed_image_digest = orchestrator.with_stage
+    (
+        DeploymentStage::GettingImageDigest,
+        "Image digest retrieval",
+        get_image_digest(&state, &deployment_source.image_tag),
+    ).await?;
 
     let container_name = format!("{}-{}", state.config.app_prefix, payload.project_name);
     
-    let volume_name = create_container_with_rollback(
-        &state,
-        &container_name,
-        &payload.project_name,
-        &deployed_image_digest,
-        &payload.env_vars,
-        &payload.persistent_volume_path,
-        &deployment_source.image_tag,
+    let volume_name = orchestrator.with_stages
+    (
+        DeploymentStage::CreatingContainer,
+        DeploymentStage::ContainerCreated,
+        "Container creation",
+        create_container_with_rollback
+        (
+            &state,
+            &container_name,
+            &payload.project_name,
+            &deployed_image_digest,
+            &payload.env_vars,
+            &payload.persistent_volume_path,
+            &deployment_source.image_tag,
+        ),
     ).await?;
 
-    let new_project = persist_project_with_rollback(
+    if let Err(e) = orchestrator.with_stages
+    (
+        DeploymentStage::WaitingHealthCheck,
+        DeploymentStage::HealthCheckPassed,
+        "Health check",
+        wait_for_container_health(&state, &container_name, 10),
+    ).await
+    {
+        warn!("Health check failed : {}, rolling back container '{}'", e, container_name);
+        let _ = docker_service::remove_container(&state.docker_client, &container_name).await;
+        if let Some(volume_name) = &volume_name
+        {
+            let _ = docker_service::remove_volume_by_name(&state.docker_client, volume_name).await?;
+        }
+        remove_image_best_effort(&state, &deployed_image_digest).await;
+    }
+
+    let new_project = persist_project_with_rollback_and_events(
         &state,
+        &mut orchestrator,
         &payload,
         &user_login,
         &container_name,
@@ -163,6 +205,8 @@ pub async fn deploy_project_handler(
         &volume_name,
         &participants,
     ).await?;
+
+    orchestrator.emit_completed(container_name).await;
 
     info!(
         "Project '{}' by user '{}' created successfully.",
@@ -339,8 +383,19 @@ pub async fn update_project_image_handler(
 
     validate_project_source(&project.source, ProjectSourceType::Direct, "Image update")?;
 
-    let deployment = prepare_blue_green_deployment(
+    let orchestrator = DeploymentOrchestrator::for_update
+    (
         &state,
+        project.name.clone(),
+        user_login.to_string(),
+        project.id,
+    );
+
+    orchestrator.emit_stage(DeploymentStage::Started).await;
+
+    let deployment = prepare_blue_green_deployment_with_events(
+        &state,
+        &orchestrator,
         &project,
         &payload.new_image_url,
         None,
@@ -348,19 +403,26 @@ pub async fn update_project_image_handler(
 
     if project.deployed_image_digest == deployment.new_image_digest
     {
+        info!
+        (
+            "Project '{}' is already running the latest version of '{}'",
+            project.name, payload.new_image_url
+        );
         return Ok(create_no_change_response("The project is already running the latest version of the image."));
     }
 
     let env_vars = get_decrypted_env_vars(&project, &state.config.encryption_key)?;
 
-    execute_blue_green_deployment(
+    execute_blue_green_deployment_with_events(
         &state,
+        &orchestrator,
         &project,
         &deployment,
         env_vars.as_ref(),
         &deployment.new_image_tag,
     ).await?;
 
+    orchestrator.emit_completed(deployment.new_container_name).await;
     Ok(create_success_response("Project image updated successfully without downtime."))
 }
 
@@ -377,16 +439,28 @@ pub async fn rebuild_project_handler(
 
     validate_project_source(&project.source, ProjectSourceType::Github, "Source rebuild")?;
 
-    let new_image_tag = build_image_from_github_source(
+    let orchestrator = DeploymentOrchestrator::for_update
+    (
         &state,
+        project.name.clone(),
+        user_login.to_string(),
+        project.id,
+    );
+
+    orchestrator.emit_stage(DeploymentStage::Started).await;
+
+    let new_image_tag = build_image_from_github_source_with_events(
+        &state,
+        &orchestrator,
         &project.name,
         &project.source_url,
         project.source_branch.as_deref(),
         project.source_root_dir.as_deref(),
     ).await?;
 
-    let deployment = prepare_blue_green_deployment(
+    let deployment = prepare_blue_green_deployment_with_events(
         &state,
+        &orchestrator,
         &project,
         &new_image_tag,
         Some(&project.deployed_image_tag),
@@ -394,19 +468,27 @@ pub async fn rebuild_project_handler(
 
     if project.deployed_image_digest == deployment.new_image_digest
     {
+        info!
+        (
+            "Project '{}' source is already up to date (digest: {})",
+            project.name, project.deployed_image_digest
+        );
         let _ = docker_service::remove_image(&state.docker_client, &new_image_tag).await;
         return Ok(create_no_change_response("The project source is already up to date."));
     }
 
     let env_vars = get_decrypted_env_vars(&project, &state.config.encryption_key)?;
 
-    execute_blue_green_deployment(
+    execute_blue_green_deployment_with_events(
         &state,
+        &orchestrator,
         &project,
         &deployment,
         env_vars.as_ref(),
         &project.deployed_image_tag,
     ).await?;
+
+    orchestrator.emit_completed(deployment.new_container_name).await;
 
     Ok(create_success_response("Project rebuilt and updated successfully from the latest source."))
 }
@@ -495,7 +577,7 @@ pub async fn update_env_vars_handler(
 // Private Helper Functions - Validation
 // ============================================================================
 
-fn validate_deploy_payload(payload: &mut DeployPayload) -> Result<(), AppError>
+async fn validate_deploy_payload(payload: &mut DeployPayload) -> Result<(), AppError>
 {
     payload.project_name = validation_service::validate_project_name(&payload.project_name)?;
 
@@ -583,14 +665,15 @@ fn prepare_participants(
     Ok(participants_set.into_iter().collect())
 }
 
-async fn prepare_deployment_source(
+async fn prepare_deployment_source_with_events(
     state: &AppState,
     payload: &DeployPayload,
+    orchestrator: &DeploymentOrchestrator<'_>,
 ) -> Result<DeploymentSource, AppError>
 {
     if let Some(image_url) = &payload.image_url
     {
-        let tag = prepare_direct_source(state, image_url).await?;
+        let tag = prepare_direct_source_with_events(state, image_url, orchestrator).await?;
         return Ok(DeploymentSource
         {
             source_type: ProjectSourceType::Direct,
@@ -601,8 +684,9 @@ async fn prepare_deployment_source(
 
     if let Some(github_repo_url) = &payload.github_repo_url
     {
-        let tag = build_image_from_github_source(
+        let tag = build_image_from_github_source_with_events(
             state,
+            orchestrator,
             &payload.project_name,
             github_repo_url,
             payload.github_branch.as_deref(),
@@ -617,17 +701,17 @@ async fn prepare_deployment_source(
         });
     }
 
-    Err(AppError::BadRequest(
-        "You must provide either an 'image_url' or a 'github_repo_url'.".to_string()
-    ))
+    Err(AppError::BadRequest("You must provide either an 'image_url' or a 'github_repo_url'.".to_string()))
 }
 
 // ============================================================================
 // Private Helper Functions - GitHub Operations
 // ============================================================================
 
-async fn build_image_from_github_source(
+async fn build_image_from_github_source_with_events
+(
     state: &AppState,
+    orchestrator: &DeploymentOrchestrator<'_>,
     project_name: &str,
     repo_url: &str,
     branch: Option<&str>,
@@ -644,16 +728,37 @@ async fn build_image_from_github_source(
         .tempdir()
         .map_err(|_| AppError::InternalServerError)?;
 
-    clone_repository(state, repo_url, temp_dir.path(), branch).await?;
+    orchestrator.with_stages
+    (
+        DeploymentStage::CloningRepository 
+        {
+            repo_url: repo_url.to_string(),
+        },
+        DeploymentStage::RepositoryCloned,
+        "Repository clone",
+        clone_repository(state, repo_url, temp_dir.path(), branch),
+    ).await?;
 
     create_dockerfile(&state.config.build_base_image, root_dir, temp_dir.path())?;
 
     let tarball = docker_service::create_tarball(temp_dir.path())?;
     let image_tag = generate_image_tag(project_name);
     
-    docker_service::build_image_from_tar(&state.docker_client, tarball, &image_tag).await?;
+    orchestrator.with_stages
+    (
+        DeploymentStage::BuildingImage,
+        DeploymentStage::ImageBuilt,
+        "Image build",
+        docker_service::build_image_from_tar(&state.docker_client, tarball, &image_tag),
+    ).await?;
 
-    if let Err(scan_error) = docker_service::scan_image_with_grype(&image_tag, &state.config).await
+    if let Err(scan_error) = orchestrator.with_stages
+    (
+        DeploymentStage::ScanningImage,
+        DeploymentStage::ImageScanned,
+        "Image scan",
+        docker_service::scan_image_with_grype(&image_tag, &state.config),
+    ).await
     {
         warn!("Image scan failed, rolling back by removing built image '{}'", image_tag);
         let _ = docker_service::remove_image(&state.docker_client, &image_tag).await;
@@ -759,15 +864,36 @@ fn create_dockerfile(
 // Private Helper Functions - Direct Source Operations
 // ============================================================================
 
-async fn prepare_direct_source(state: &AppState, image_url: &str) -> Result<String, AppError>
+async fn prepare_direct_source_with_events
+(
+    state: &AppState, 
+    image_url: &str,
+    orchestrator: &DeploymentOrchestrator<'_>,
+) -> Result<String, AppError>
 {
     info!("Preparing 'direct' source from image '{}'", image_url);
     
     validation_service::validate_image_url(image_url)?;
 
-    pull_image_with_error_handling(state, image_url).await?;
+    orchestrator.with_stages
+    (
+        DeploymentStage::PullingImage 
+        {
+            image_url: image_url.to_string(),
+        },
+        DeploymentStage::ImagePulled,
+        "Image pull",
+        pull_image_with_error_handling(state, image_url),
+    ).await?;
 
-    scan_image_with_rollback(state, image_url).await?;
+    orchestrator.with_stages
+    (
+        DeploymentStage::ScanningImage,
+        DeploymentStage::ImageScanned,
+        "Image scan",
+        scan_image_with_rollback(state, image_url),
+    ).await?;
+
 
     Ok(image_url.to_string())
 }
@@ -845,9 +971,22 @@ async fn create_container_with_rollback(
 
 async fn get_image_digest(state: &AppState, image_tag: &str) -> Result<String, AppError>
 {
-    docker_service::get_image_digest(&state.docker_client, image_tag)
-        .await?
-        .ok_or_else(|| AppError::InternalServerError)
+    match docker_service::get_image_digest(&state.docker_client, image_tag).await
+    {
+        Ok(Some(digest)) => Ok(digest),
+        Ok(None) =>
+        {
+            error!("Image '{}' not found when retrieving digest", image_tag);
+            remove_image_best_effort(state, image_tag).await;
+            Err(AppError::InternalServerError)
+        }
+        Err(e) =>
+        {
+            error!("Failed to retrieve image digest for '{}': {}", image_tag, e);
+            remove_image_best_effort(state, image_tag).await;
+            Err(AppError::InternalServerError)
+        }
+    }
 }
 
 fn generate_image_tag(project_name: &str) -> String
@@ -910,8 +1049,9 @@ async fn remove_image_best_effort(state: &AppState, image_tag: &str)
 // Private Helper Functions - Database Operations
 // ============================================================================
 
-async fn persist_project_with_rollback(
+async fn persist_project_with_rollback_and_events(
     state: &AppState,
+    orchestrator: &mut DeploymentOrchestrator<'_>,
     payload: &DeployPayload,
     user_login: &str,
     container_name: &str,
@@ -938,9 +1078,17 @@ async fn persist_project_with_rollback(
             volume_name,
         ).await?;
 
+        orchestrator.set_project_id(new_project.id);
+
         if payload.create_database.unwrap_or(false)
         {
-            provision_database_in_transaction(&mut tx, state, user_login, new_project.id).await?;
+            orchestrator.with_stages
+            (
+                DeploymentStage::ProvisioningDatabase,
+                DeploymentStage::DatabaseProvisioned,
+                "Database provisioning",
+                provision_database_in_transaction(&mut tx, state, user_login, new_project.id),
+            ).await?;
         }
 
         add_participants_in_transaction(&mut tx, new_project.id, participants).await?;
@@ -1199,8 +1347,9 @@ async fn validate_container_exists_for_action(
 // Private Helper Functions - Blue-Green Deployment
 // ============================================================================
 
-async fn prepare_blue_green_deployment(
+async fn prepare_blue_green_deployment_with_events(
     state: &AppState,
+    orchestrator: &DeploymentOrchestrator<'_>,
     project: &crate::model::project::Project,
     new_image_url: &str,
     old_image_tag: Option<&str>,
@@ -1208,10 +1357,16 @@ async fn prepare_blue_green_deployment(
 {
     if old_image_tag.is_none()
     {
-        prepare_direct_source(state, new_image_url).await?;
+        prepare_direct_source_with_events(state, new_image_url, orchestrator).await?;
     }
 
-    let new_image_digest = get_image_digest(state, new_image_url).await?;
+    let new_image_digest = orchestrator.with_stage
+    (
+        DeploymentStage::GettingImageDigest,
+        "Image digest retrieval",
+        get_image_digest(state, new_image_url),
+    ).await?;
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1245,8 +1400,9 @@ fn create_blue_green_deployment_for_env_update(
     }
 }
 
-async fn execute_blue_green_deployment(
+async fn execute_blue_green_deployment_with_events(
     state: &AppState,
+    orchestrator: &DeploymentOrchestrator<'_>,
     project: &crate::model::project::Project,
     deployment: &BlueGreenDeployment,
     env_vars: Option<&HashMap<String, String>>,
@@ -1255,26 +1411,33 @@ async fn execute_blue_green_deployment(
 {
     info!("Creating new container '{}' for project '{}'", deployment.new_container_name, project.name);
 
-    create_new_container_for_deployment(
-        state,
-        project,
-        deployment,
-        env_vars,
+    orchestrator.with_stages
+    (
+        DeploymentStage::CreatingContainer,
+        DeploymentStage::ContainerCreated,
+        "New container creation",
+        create_new_container_for_deployment(state, project, deployment, env_vars),
     ).await?;
 
-    wait_for_container_health(state, &deployment.new_container_name, 10).await
-        .inspect_err(|_|
+
+    orchestrator.with_stages
+    (
+        DeploymentStage::WaitingHealthCheck,
+        DeploymentStage::HealthCheckPassed,
+        "Health check",
+        wait_for_container_health(state, &deployment.new_container_name, 10),
+    ).await.inspect_err(|_|
+    {
+        let docker = state.docker_client.clone();
+        let container = deployment.new_container_name.clone();
+        let image = deployment.new_image_tag.clone();
+        
+        tokio::spawn(async move
         {
-            let docker = state.docker_client.clone();
-            let container = deployment.new_container_name.clone();
-            let image = deployment.new_image_tag.clone();
-            
-            tokio::spawn(async move
-            {
-                let _ = docker_service::remove_container(&docker, &container).await;
-                let _ = docker_service::remove_image(&docker, &image).await;
-            });
-        })?;
+            let _ = docker_service::remove_container(&docker, &container).await;
+            let _ = docker_service::remove_image(&docker, &image).await;
+        });
+    })?;
 
     update_project_metadata(state, project.id, deployment, &project.source).await
         .inspect_err(|_| 
@@ -1292,7 +1455,7 @@ async fn execute_blue_green_deployment(
             });
         })?;
 
-
+    orchestrator.emit_stage(DeploymentStage::CleaningUp).await;
     cleanup_old_deployment(state, &deployment.old_container_name, old_image_to_cleanup).await;
 
     info!(
