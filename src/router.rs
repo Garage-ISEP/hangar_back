@@ -20,6 +20,18 @@ pub fn create_router(state: AppState) -> Router
                 .layer(HandleErrorLayer::new(|_: BoxError| async {StatusCode::REQUEST_TIMEOUT}))
                 .layer(TimeoutLayer::new(Duration::from_secs(state.config.timeout_long)));
     
+    let sse_layer = ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(CorsLayer::permissive());
+    
+    let sse_routes = Router::new()
+        .route("/api/sse/admin", get(handlers::sse_handler::sse_admin_handler))
+        .route("/api/sse/all", get(handlers::sse_handler::sse_all_handler))
+        .route("/api/sse/projects/{project_id}", get(handlers::sse_handler::sse_project_handler))
+        .route("/api/sse/creation", get(handlers::sse_handler::sse_creation_handler))
+        .route_layer(axum_middleware::from_fn_with_state(state.clone(), middleware::auth))
+        .layer(sse_layer);
+
     let admin_routes = Router::new()
         .route("/api/admin/projects", get(handlers::admin_handler::list_all_projects_handler))
         .route("/api/admin/metrics", get(handlers::admin_handler::get_global_metrics_handler))
@@ -67,6 +79,7 @@ pub fn create_router(state: AppState) -> Router
 
     Router::new()
         .merge(public_routes)
+        .merge(sse_routes)
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(long_running_protected_routes)

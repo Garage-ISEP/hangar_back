@@ -10,7 +10,8 @@ axum = "0.8"
 axum-extra = { version = "0.12", features = ["cookie"] }
 
 # Le runtime asynchrone
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "fs", "process"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "fs", "process", "signal"] }
+tokio-stream = {version = "0.1", features = ["sync"] }
 futures = "0.3"
 
 # La tour de services et ses middlewares HTTP
@@ -39,14 +40,14 @@ thiserror = "2.0"
 dotenvy = "0.15"
 
 # Client HTTP pour les appels externes
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 quick-xml = { version = "0.38", features = ["serialize"] }
 time = { version = "0.3", features = ["serde"] }
 
 bollard = "0.19"
 
-tempfile = "3.10"
+tempfile = "3.24"
 tar = "0.4"
 flate2 = { version = "1.1", features = ["zlib"], default-features = false }
 
