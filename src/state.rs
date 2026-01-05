@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use bollard::Docker;
 use sqlx::{MySqlPool, PgPool};
-use crate::config::Config;
+use crate::{config::Config, sse::manager::SseManager};
 
 pub type AppState = Arc<InnerState>;
 
@@ -12,6 +12,7 @@ pub struct InnerState
     pub docker_client: Docker,
     pub db_pool: PgPool,
     pub mariadb_pool: MySqlPool,
+    pub sse_manager: SseManager,
 }
 
 impl InnerState 
@@ -25,6 +26,7 @@ impl InnerState
             docker_client,
             db_pool,
             mariadb_pool,
+            sse_manager: SseManager::new(),
         })
     }
 }

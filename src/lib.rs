@@ -6,3 +6,4 @@ pub mod state;
 pub mod services;
 pub mod model;
 pub mod middleware;
+pub mod sse;

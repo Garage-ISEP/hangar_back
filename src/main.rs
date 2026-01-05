@@ -1,4 +1,6 @@
 use hangar_back::config::Config;
+use hangar_back::sse::manager::start_cleanup_task;
+use hangar_back::sse::tasks::{start_docker_events_listener, start_metrics_collector};
 use hangar_back::state::InnerState;
 use hangar_back::router;
 
@@ -6,7 +8,8 @@ use std::net::{SocketAddr, Ipv4Addr};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::mysql::MySqlPoolOptions;
 use tokio::net::TcpListener;
-use tracing::info;
+use tokio::signal;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main()
@@ -76,12 +79,61 @@ async fn main()
     };
 
     let app_state = InnerState::new(config.clone(), docker_client, db_pool, mariadb_pool);
+
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
+
+    tokio::spawn(start_cleanup_task(
+        app_state.sse_manager.clone(), 
+        shutdown_tx.subscribe()
+    ));
+
+    tokio::spawn(start_docker_events_listener(
+        app_state.clone(), 
+        shutdown_tx.subscribe()
+    ));
+
+    tokio::spawn(start_metrics_collector(
+        app_state.clone(), 
+        shutdown_tx.subscribe()
+    ));
+
     let app = router::create_router(app_state);
 
     let addr = SocketAddr::from((config.host.parse::<Ipv4Addr>().unwrap(), config.port));
-    info!("🚀 Server listening on http://{}", addr);
-
     let listener = TcpListener::bind(&addr).await.unwrap();
     info!("🔗 Listening on: {}", addr);
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal(shutdown_tx))
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal(shutdown_tx: tokio::sync::broadcast::Sender<()>) 
+{
+    let ctrl_c = async 
+    {
+        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async 
+    {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! 
+    {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    warn!("Shutdown signal received, stopping background tasks...");
+    let _ = shutdown_tx.send(());
 }

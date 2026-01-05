@@ -412,3 +412,38 @@ pub async fn update_project_source_url(
         })?;
     Ok(())
 }
+
+pub async fn get_project_by_container_name(
+    pool: &PgPool,
+    container_name: &str,
+) -> Result<Option<Project>, AppError> 
+{
+    sqlx::query_as::<_, Project>(&format!("{} WHERE container_name = $1", SELECT_PROJECT_FIELDS))
+        .bind(container_name)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| 
+        {
+            error!("Failed to fetch project by container name '{}': {}", container_name, e);
+            AppError::InternalServerError
+        })
+}
+
+pub async fn get_projects_by_ids(pool: &PgPool, ids: &[i32]) -> Result<Vec<Project>, AppError> 
+{
+    if ids.is_empty() 
+    {
+        return Ok(Vec::new());
+    }
+
+    let query = format!("{} WHERE id = ANY($1)", SELECT_PROJECT_FIELDS);
+    sqlx::query_as::<_, Project>(&query)
+        .bind(ids)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| 
+        {
+            error!("Failed to fetch projects by ids {:?}: {}", ids, e);
+            AppError::InternalServerError
+        })
+}
