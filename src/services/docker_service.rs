@@ -1,6 +1,6 @@
 use bollard::auth::DockerCredentials;
 use bollard::errors::Error as BollardError;
-use bollard::secret::{ContainerState, ContainerStatsResponse, Mount, MountTypeEnum, ResourcesUlimits, RestartPolicy};
+use bollard::secret::{ContainerStatsResponse, Mount, MountTypeEnum, ResourcesUlimits, RestartPolicy};
 use bollard::models::VolumeCreateOptions;
 use bollard::Docker;
 use bollard::models::{ContainerCreateBody, HostConfig};
@@ -326,23 +326,6 @@ pub async fn remove_volume_by_name(docker: &Docker, volume_name: &str) -> Result
         Err(e) =>
         {
             error!("Error removing volume {}: {}", volume_name, e);
-            Err(AppError::InternalServerError)
-        }
-    }
-}
-
-pub async fn get_container_status(docker: &Docker, container_name: &str) -> Result<Option<ContainerState>, AppError> 
-{
-    match docker.inspect_container(container_name, None::<InspectContainerOptions>).await 
-    {
-        Ok(details) => Ok(details.state),
-        Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => 
-        {
-            Ok(None)
-        },
-        Err(e) => 
-        {
-            error!("Failed to inspect container '{}': {}", container_name, e);
             Err(AppError::InternalServerError)
         }
     }

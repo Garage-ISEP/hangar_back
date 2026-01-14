@@ -181,13 +181,21 @@ impl<'a> DeploymentOrchestrator<'a>
     }
 
     /// Émet l'étape de complétion avec les informations du container.
-    pub async fn emit_completed(&self, container_name: String)
+    pub async fn emit_completed(&self, container_name: String, project_id: i32)
     {
-        info!(
-            "Deployment completed for project '{}' (container: {})",
-            self.project_name, container_name
-        );
-        self.emit_stage(DeploymentStage::Completed { container_name }).await;
+        info!("Deployment completed for project '{}' (container: {})", self.project_name, container_name);
+        
+        let stage = DeploymentStage::Completed { container_name };
+        
+        debug!("Emitting creation completion for project '{}' (ID: {}, user: {})", self.project_name, project_id, self.user_login);
+        emit_creation_deployment_stage
+        (
+            self.state,
+            &self.user_login,
+            self.project_name.clone(),
+            stage,
+            Some(project_id),
+        ).await;
     }
 
     /// Émet une étape d'échec avec contexte.

@@ -10,7 +10,6 @@ pub enum SseEvent
     Deployment(DeploymentEvent),
     ContainerStatus(ContainerStatusEvent),
     Metrics(MetricsEvent),
-    Logs(LogsEvent),
     System(SystemEvent),
 }
 
@@ -23,7 +22,6 @@ impl SseEvent
             Self::Deployment(_) => "deployment",
             Self::ContainerStatus(_) => "container_status",
             Self::Metrics(_) => "metrics",
-            Self::Logs(_) => "logs",
             Self::System(_) => "system",
         }
     }
@@ -254,49 +252,6 @@ impl MetricsEvent
             project_id,
             project_name,
             metrics,
-            timestamp: OffsetDateTime::now_utc(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogsEvent
-{
-    pub project_id: i32,
-    pub project_name: String,
-    pub lines: Vec<LogLine>,
-    
-    #[serde(with = "time::serde::rfc3339")]
-    pub timestamp: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogLine
-{
-    pub content: String,
-    pub stream: LogStream,
-    
-    #[serde(with = "time::serde::rfc3339")]
-    pub timestamp: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum LogStream
-{
-    Stdout,
-    Stderr,
-}
-
-impl LogsEvent
-{
-    pub fn new(project_id: i32, project_name: String, lines: Vec<LogLine>) -> Self
-    {
-        Self
-        {
-            project_id,
-            project_name,
-            lines,
             timestamp: OffsetDateTime::now_utc(),
         }
     }

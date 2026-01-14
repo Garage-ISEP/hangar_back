@@ -23,7 +23,10 @@ FROM alpine:latest AS runner
 RUN apk add --no-cache libssl3 ca-certificates
 
 # need to match host system's docker group
-RUN addgroup -g 996 docker
+# 996 on my debian
+# 965 on my arch
+# verify with: getent group docker
+RUN addgroup -g 965 docker
 
 RUN addgroup -g 1000 appgroup && adduser -u 1000 -S appuser -G appgroup
 

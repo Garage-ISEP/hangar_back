@@ -32,14 +32,9 @@ pub async fn sse_admin_handler(
     }
 
     let client_id: u128 = rand::random();
-    debug!(
-        "Admin '{}' connected to admin SSE stream (client: {})",
-        claims.sub, client_id
-    );
-
     let rx = state.sse_manager.subscribe_admin();
     let stream = create_sse_stream(rx, client_id);
-
+    debug!("Admin '{}' connected to admin SSE stream (client: {})", claims.sub, client_id);
     Ok(Sse::new(stream).keep_alive(create_keep_alive()))
 }
 
@@ -53,14 +48,9 @@ pub async fn sse_all_handler(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError>
 {
     let client_id: u128 = rand::random();
-    debug!(
-        "User '{}' connected to 'all' SSE stream (client: {})",
-        claims.sub, client_id
-    );
-
     let rx = state.sse_manager.subscribe_all();
     let stream = create_sse_stream(rx, client_id);
-
+    debug!("User '{}' connected to 'all' SSE stream (client: {})", claims.sub, client_id);
     Ok(Sse::new(stream).keep_alive(create_keep_alive()))
 }
 
@@ -87,11 +77,9 @@ pub async fn sse_project_handler(
     })?;
 
     let client_id: u128 = rand::random();
-    debug!("User '{}' connected to SSE stream for project '{}' (client: {})", user_login, project.name, client_id);
-
     let rx = state.sse_manager.subscribe_to_project(project_id).await;
     let stream = create_sse_stream(rx, client_id);
-
+    debug!("User '{}' connected to SSE stream for project '{}' (client: {})", user_login, project.name, client_id);
     Ok(Sse::new(stream).keep_alive(create_keep_alive()))
 }
 
@@ -107,12 +95,9 @@ pub async fn sse_creation_handler(
 {
     let user_login = claims.sub;
     let client_id: u128 = rand::random();
-
-    debug!("User '{}' connected to creation SSE stream (client: {})", user_login, client_id);
-
     let rx = state.sse_manager.subscribe_to_creation(&user_login).await;
     let stream = create_sse_stream(rx, client_id);
-
+    debug!("User '{}' connected to creation SSE stream (client: {})", user_login, client_id);
     Ok(Sse::new(stream).keep_alive(create_keep_alive()))
 }
 
@@ -122,33 +107,36 @@ fn create_sse_stream(
     client_id: u128,
 ) -> impl Stream<Item = Result<Event, Infallible>>
 {
-    BroadcastStream::new(rx).filter_map(move |result| match result
+    BroadcastStream::new(rx).filter_map(move |result|
     {
-        Ok(sse_event) => match event_to_sse(sse_event)
+        match result
         {
-            Ok(event) => Some(Ok(event)),
-            Err(e) =>
-            {
-                error!("Failed to serialize SSE event for client {}: {}", client_id, e);
-                None
-            }
-        },
-        Err(BroadcastStreamRecvError::Lagged(n)) =>
-        {
-            warn!("Client {} lagged behind, {} messages lost. Sending warning.", client_id, n);
-
-            let system_event = SseEvent::System(SystemEvent 
-            {
-                level: SystemEventLevel::Warning,
-                message: format!("Connection slow: {} messages missed", n),
-                context: None,
-                timestamp: time::OffsetDateTime::now_utc(),
-            });
-
-            match event_to_sse(system_event)
+            Ok(sse_event) => match event_to_sse(sse_event)
             {
                 Ok(event) => Some(Ok(event)),
-                Err(_) => None,
+                Err(e) =>
+                {
+                    error!("Failed to serialize SSE event for client {}: {}", client_id, e);
+                    None
+                }
+            },
+            Err(BroadcastStreamRecvError::Lagged(n)) =>
+            {
+                warn!("Client {} lagged behind, {} messages lost. Sending warning.", client_id, n);
+
+                let system_event = SseEvent::System(SystemEvent 
+                {
+                    level: SystemEventLevel::Warning,
+                    message: format!("Connection slow: {} messages missed", n),
+                    context: None,
+                    timestamp: time::OffsetDateTime::now_utc(),
+                });
+
+                match event_to_sse(system_event)
+                {
+                    Ok(event) => Some(Ok(event)),
+                    Err(_) => None,
+                }
             }
         }
     })
@@ -167,5 +155,5 @@ fn event_to_sse(sse_event: SseEvent) -> Result<Event, serde_json::Error>
 /// Crée la configuration de keep-alive
 fn create_keep_alive() -> KeepAlive
 {
-    KeepAlive::new().interval(Duration::from_secs(15)).text("ping")
+    KeepAlive::new().interval(Duration::from_secs(5)).text("keep-alive")
 }

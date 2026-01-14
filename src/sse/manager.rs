@@ -279,7 +279,7 @@ impl SseManager
         
         let rx = tx.subscribe();
         
-        info!("User '{}' subscribed to creation channel", user_login);
+        debug!("User '{}' subscribed to creation channel", user_login);
         
         rx
     }

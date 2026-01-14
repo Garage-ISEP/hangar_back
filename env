@@ -52,4 +52,4 @@ TIMEOUT_SECONDS_NORMAL=10
 TIMEOUT_SECONDS_LONG=300
 
 # Configuration des logs
-RUST_LOG=info,pdf_hoster=info,tower_http=info
+RUST_LOG=info,hangar_back=info,tower_http=info

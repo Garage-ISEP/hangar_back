@@ -1,5 +1,5 @@
 use crate::model::project::ProjectMetrics;
-use crate::sse::types::{ContainerStatus, ContainerStatusEvent, DeploymentEvent, DeploymentStage, LogLine, LogsEvent, MetricsEvent, SseEvent, SystemEvent};
+use crate::sse::types::{ContainerStatus, ContainerStatusEvent, DeploymentEvent, DeploymentStage, MetricsEvent, SseEvent, SystemEvent};
 use crate::state::AppState;
 
 pub async fn emit_creation_deployment_stage(
@@ -87,23 +87,6 @@ pub async fn emit_metrics(
     
     state.sse_manager.emit_to_project(project_id, event).await;
 }
-
-pub async fn emit_logs(
-    state: &AppState,
-    project_id: i32,
-    project_name: String,
-    lines: Vec<LogLine>,
-)
-{
-    let event = SseEvent::Logs(LogsEvent::new(
-        project_id,
-        project_name,
-        lines,
-    ));
-    
-    state.sse_manager.emit_to_project(project_id, event).await;
-}
-
 
 pub fn emit_admin_info(state: &AppState, message: String)
 {

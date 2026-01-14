@@ -20,7 +20,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::
 {
-    error::{AppError, DatabaseErrorCode, ProjectErrorCode}, model::project::{ProjectDetailsResponse, ProjectMetrics, ProjectSourceType}, services::
+    error::{AppError, DatabaseErrorCode, ProjectErrorCode}, model::project::{ProjectDetailsResponse, ProjectSourceType}, services::
     {
         crypto_service, database_service, deployment_orchestrator::DeploymentOrchestrator, docker_service, github_service, jwt::Claims, project_service, validation_service
     }, sse::types::DeploymentStage, state::AppState
@@ -116,7 +116,7 @@ pub async fn deploy_project_handler(
     Json(mut payload): Json<DeployPayload>,
 ) -> Result<impl IntoResponse, AppError>
 {
-    let mut orchestrator = DeploymentOrchestrator::for_creation
+    let orchestrator = DeploymentOrchestrator::for_creation
     (
         &state,
         payload.project_name.clone(),
@@ -189,14 +189,14 @@ pub async fn deploy_project_handler(
         let _ = docker_service::remove_container(&state.docker_client, &container_name).await;
         if let Some(volume_name) = &volume_name
         {
-            let _ = docker_service::remove_volume_by_name(&state.docker_client, volume_name).await?;
+            docker_service::remove_volume_by_name(&state.docker_client, volume_name).await?;
         }
         remove_image_best_effort(&state, &deployed_image_digest).await;
     }
 
     let new_project = persist_project_with_rollback_and_events(
         &state,
-        &mut orchestrator,
+        &orchestrator,
         &payload,
         &user_login,
         &container_name,
@@ -206,7 +206,7 @@ pub async fn deploy_project_handler(
         &participants,
     ).await?;
 
-    orchestrator.emit_completed(container_name).await;
+    orchestrator.emit_completed(container_name, new_project.id).await;
 
     info!(
         "Project '{}' by user '{}' created successfully.",
@@ -301,19 +301,6 @@ pub async fn get_project_details_handler(
     Ok((StatusCode::OK, Json(json!({ "project": response }))))
 }
 
-pub async fn get_project_status_handler(
-    State(state): State<AppState>,
-    claims: Claims,
-    Path(project_id): Path<i32>,
-) -> Result<impl IntoResponse, AppError>
-{
-    let project = get_project_for_user(&state, project_id, &claims.sub, claims.is_admin).await?;
-    
-    let status = docker_service::get_container_status(&state.docker_client, &project.container_name).await?;
-    
-    Ok(Json(json!({ "status": status.and_then(|s| s.status) })))
-}
-
 pub async fn start_project_handler(
     State(state): State<AppState>,
     claims: Claims,
@@ -352,21 +339,6 @@ pub async fn get_project_logs_handler(
     let logs = docker_service::get_container_logs(&state.docker_client, &project.container_name, "200").await?;
     
     Ok(Json(json!({ "logs": logs })))
-}
-
-pub async fn get_project_metrics_handler(
-    State(state): State<AppState>,
-    claims: Claims,
-    Path(project_id): Path<i32>,
-) -> Result<Json<ProjectMetrics>, AppError>
-{
-    let project = get_project_for_user(&state, project_id, &claims.sub, claims.is_admin).await?;
-    
-    debug!("Fetching metrics for container '{}' (Project ID: {})", project.container_name, project.id);
-    
-    let metrics = docker_service::get_container_metrics(&state.docker_client, &project.container_name).await?;
-    
-    Ok(Json(metrics))
 }
 
 pub async fn update_project_image_handler(
@@ -422,7 +394,7 @@ pub async fn update_project_image_handler(
         &deployment.new_image_tag,
     ).await?;
 
-    orchestrator.emit_completed(deployment.new_container_name).await;
+    orchestrator.emit_completed(deployment.new_container_name, project_id).await;
     Ok(create_success_response("Project image updated successfully without downtime."))
 }
 
@@ -488,7 +460,7 @@ pub async fn rebuild_project_handler(
         &project.deployed_image_tag,
     ).await?;
 
-    orchestrator.emit_completed(deployment.new_container_name).await;
+    orchestrator.emit_completed(deployment.new_container_name, project_id).await;
 
     Ok(create_success_response("Project rebuilt and updated successfully from the latest source."))
 }
@@ -1051,7 +1023,7 @@ async fn remove_image_best_effort(state: &AppState, image_tag: &str)
 
 async fn persist_project_with_rollback_and_events(
     state: &AppState,
-    orchestrator: &mut DeploymentOrchestrator<'_>,
+    orchestrator: &DeploymentOrchestrator<'_>,
     payload: &DeployPayload,
     user_login: &str,
     container_name: &str,
@@ -1077,8 +1049,6 @@ async fn persist_project_with_rollback_and_events(
             deployed_image_digest,
             volume_name,
         ).await?;
-
-        orchestrator.set_project_id(new_project.id);
 
         if payload.create_database.unwrap_or(false)
         {
@@ -1325,9 +1295,12 @@ async fn validate_container_exists_for_action(
     action: ProjectAction,
 ) -> Result<(), AppError>
 {
-    let status = docker_service::get_container_status(&state.docker_client, &project.container_name).await?;
+    let details = docker_service::inspect_container_details(
+        &state.docker_client, 
+        &project.container_name
+    ).await?;
 
-    if status.is_none() && matches!(action, ProjectAction::Start | ProjectAction::Restart)
+    if details.is_none() && matches!(action, ProjectAction::Start | ProjectAction::Restart)
     {
         warn!(
             "Container '{}' not found for project ID {}. It might be lost.",
