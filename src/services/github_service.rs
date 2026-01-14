@@ -79,12 +79,12 @@ pub async fn check_repo_accessibility(
     repo: &str,
 ) -> Result<(), AppError> 
 {
-    let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    let url = format!("https://api.github.com/repos/{owner}/{repo}");
     info!("Checking repository accessibility at: {}", url);
 
     let response = http_client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "Hangar App")
         .send()
@@ -145,7 +145,7 @@ pub async fn get_installation_id_by_user(http_client: &reqwest::Client, config: 
 
     let response = http_client
         .get("https://api.github.com/app/installations")
-        .header("Authorization", format!("Bearer {}", app_jwt))
+        .header("Authorization", format!("Bearer {app_jwt}"))
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "Hangar App")
         .send()
@@ -174,11 +174,11 @@ pub async fn get_installation_id_by_user(http_client: &reqwest::Client, config: 
 pub async fn get_installation_token(installation_id: u64, http_client: &reqwest::Client, config: &Config) -> Result<String, AppError>
 {
     let app_jwt = generate_app_jwt(config).await?;
-    let url = format!("https://api.github.com/app/installations/{}/access_tokens", installation_id);
+    let url = format!("https://api.github.com/app/installations/{installation_id}/access_tokens");
 
     let response = http_client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", app_jwt))
+        .header("Authorization", format!("Bearer {app_jwt}"))
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", "Hangar App")
         .send()
@@ -199,8 +199,8 @@ pub async fn clone_repo(repo_url: &str, target_dir: &Path, token: Option<&str>, 
 {
     let repo_url_owned = repo_url.to_string();
     let target_dir = target_dir.to_path_buf();
-    let token = token.map(|s| s.to_string());
-    let branch = branch.map(|s| s.to_string());
+    let token = token.map(std::string::ToString::to_string);
+    let branch = branch.map(std::string::ToString::to_string);
 
     let repo_url_for_log = repo_url_owned.clone();
 

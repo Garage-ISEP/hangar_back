@@ -359,7 +359,7 @@ pub async fn update_project_image_handler(
     (
         &state,
         project.name.clone(),
-        user_login.to_string(),
+        user_login.clone(),
         project.id,
     );
 
@@ -415,7 +415,7 @@ pub async fn rebuild_project_handler(
     (
         &state,
         project.name.clone(),
-        user_login.to_string(),
+        user_login.clone(),
         project.id,
     );
 
@@ -586,7 +586,7 @@ fn validate_project_source(
         };
         
         return Err(AppError::BadRequest(
-            format!("{} is only supported for '{}' source projects.", operation, source_name)
+            format!("{operation} is only supported for '{source_name}' source projects.")
         ));
     }
     
@@ -749,13 +749,13 @@ async fn clone_repository(
 {
     match github_service::clone_repo(repo_url, destination, None, branch).await
     {
-        Ok(_) =>
+        Ok(()) =>
         {
             info!("Successfully cloned public repository '{}'", repo_url);
             Ok(())
         }
-        Err(AppError::ProjectError(ProjectErrorCode::GithubAccountNotLinked))
-        | Err(AppError::ProjectError(ProjectErrorCode::InvalidGithubUrl)) =>
+        Err(AppError::ProjectError(ProjectErrorCode::GithubAccountNotLinked |
+ProjectErrorCode::InvalidGithubUrl)) =>
         {
             warn!(
                 "Public clone failed for '{}'. Assuming private repo and trying authenticated clone.",
@@ -809,16 +809,13 @@ fn create_dockerfile(
 ) -> Result<(), AppError>
 {
     let dockerfile_content = format!(
-        "FROM {}\nCOPY --chown=appuser:appgroup . /var/www/html/\n",
-        base_image
+        "FROM {base_image}\nCOPY --chown=appuser:appgroup . /var/www/html/\n"
     );
 
     let dockerfile_content = if let Some(dir) = root_dir 
     {
         format!(
-            "{}ENV HANGAR_WEBROOT_DIR=/var/www/html/{}\n",
-            dockerfile_content,
-            dir
+            "{dockerfile_content}ENV HANGAR_WEBROOT_DIR=/var/www/html/{dir}\n"
         )
     } 
     else 
@@ -874,7 +871,7 @@ async fn pull_image_with_error_handling(state: &AppState, image_url: &str) -> Re
 {
     match docker_service::pull_image(&state.docker_client, image_url, None).await
     {
-        Ok(_) =>
+        Ok(()) =>
         {
             info!("Successfully pulled public image '{}'", image_url);
             Ok(())
@@ -1009,7 +1006,7 @@ async fn remove_image_best_effort(state: &AppState, image_tag: &str)
 {
     match docker_service::remove_image(&state.docker_client, image_tag).await
     {
-        Ok(_) => info!("Successfully removed image '{}'", image_tag),
+        Ok(()) => info!("Successfully removed image '{}'", image_tag),
         Err(e) => warn!(
             "Failed to remove image '{}': {}. Manual cleanup may be required.",
             image_tag, e
@@ -1245,8 +1242,7 @@ async fn get_project_for_owner(
         .ok_or_else(||
         {
             AppError::NotFound(format!(
-                "Project with ID {} not found or you don't have access.",
-                project_id
+                "Project with ID {project_id} not found or you don't have access."
             ))
         })
 }
@@ -1263,8 +1259,7 @@ async fn get_project_for_user(
         .ok_or_else(||
         {
             AppError::NotFound(format!(
-                "Project with ID {} not found or you don't have access.",
-                project_id
+                "Project with ID {project_id} not found or you don't have access."
             ))
         })
 }
@@ -1668,7 +1663,7 @@ fn create_deploy_response(
     participants: Vec<String>,
 ) -> (StatusCode, Json<serde_json::Value>)
 {
-    let mut project_json = serde_json::to_value(new_project).unwrap_or(json!({}));
+    let mut project_json = serde_json::to_value(new_project).unwrap_or_else(|_| json!({}));
     
     if let Some(obj) = project_json.as_object_mut()
     {

@@ -39,7 +39,7 @@ pub async fn auth_callback_handler(State(state): State<AppState>,
         is_admin,
     )?;
 
-    let cookie = Cookie::build(("auth_token", token.to_string()))
+    let cookie = Cookie::build(("auth_token", token))
         .path("/") // Le cookie est valide pour tout le site
         .secure(true) // Envoyé seulement sur HTTPS
         .http_only(true) // Inaccessible depuis JavaScript

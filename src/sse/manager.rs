@@ -15,16 +15,17 @@ pub struct SseManager
     /// Canal pour tous les utilisateurs (notifications globales)
     all_tx: broadcast::Sender<SseEvent>,
 
-    /// Canaux spécifiques par projet (project_id -> sender)
+    /// Canaux spécifiques par projet (`project_id` -> sender)
     project_channels: Arc<RwLock<HashMap<i32, broadcast::Sender<SseEvent>>>>,
 
-    /// Canaux temporaires pour les créations en cours (user_login -> sender)
+    /// Canaux temporaires pour les créations en cours (`user_login` -> sender)
     /// Utilisé pendant /projects/create avant que le projet n'existe
     creation_channels: Arc<RwLock<HashMap<String, broadcast::Sender<SseEvent>>>>,
 }
 
 impl SseManager 
 {
+    #[must_use] 
     pub fn new() -> Self 
     {
         let (admin_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
@@ -39,11 +40,13 @@ impl SseManager
         }
     }
 
+    #[must_use] 
     pub fn admin_subscriber_count(&self) -> usize
     {
         self.admin_tx.receiver_count()
     }
 
+    #[must_use] 
     pub fn all_subscriber_count(&self) -> usize
     {
         self.all_tx.receiver_count()
@@ -54,8 +57,7 @@ impl SseManager
         let map = self.project_channels.read().await;
 
         map.get(&project_id)
-            .map(|tx| tx.receiver_count())
-            .unwrap_or(0)
+            .map_or(0, tokio::sync::broadcast::Sender::receiver_count)
     }
 
     pub async fn active_project_channels(&self) -> usize 
@@ -178,7 +180,7 @@ impl SseManager
     /// Émet un événement sur le canal de création temporaire d'un utilisateur
     /// 
     /// Cas d'usage :
-    /// - Événements de création de projet (avant que project_id n'existe)
+    /// - Événements de création de projet (avant que `project_id` n'existe)
     /// - Pulling image
     /// - Scanning
     /// - Building
@@ -290,14 +292,13 @@ impl SseManager
         {
             let map = self.project_channels.read().await;
             map.get(&project_id)
-                .map(|tx| tx.receiver_count() == 0)
-                .unwrap_or(false)
+                .is_some_and(|tx| tx.receiver_count() == 0)
         };
 
         if remove 
         {
             let mut map = self.project_channels.write().await;
-            if map.get(&project_id).map(|tx| tx.receiver_count() == 0).unwrap_or(false)
+            if map.get(&project_id).is_some_and(|tx| tx.receiver_count() == 0)
             {
                 map.remove(&project_id);
                 debug!("Cleaned up empty project channel for project {}", project_id);
@@ -311,14 +312,13 @@ impl SseManager
         {
             let map = self.creation_channels.read().await;
             map.get(user_login)
-                .map(|tx| tx.receiver_count() == 0)
-                .unwrap_or(false)
+                .is_some_and(|tx| tx.receiver_count() == 0)
         };
 
         if remove 
         {
             let mut map = self.creation_channels.write().await;
-            if map.get(user_login).map(|tx| tx.receiver_count() == 0).unwrap_or(false)
+            if map.get(user_login).is_some_and(|tx| tx.receiver_count() == 0)
             {
                 map.remove(user_login);
                 debug!("Cleaned up empty creation channel for user '{}'", user_login);
@@ -380,7 +380,7 @@ impl SseManager
         {
             let map = self.project_channels.read().await;
             map.values()
-                .map(|tx| tx.receiver_count())
+                .map(tokio::sync::broadcast::Sender::receiver_count)
                 .sum()
         };
 

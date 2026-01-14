@@ -42,7 +42,7 @@ pub enum ConfigError
     Invalid(String, String),
 }
 
-#[derive(Debug, Error, Serialize, PartialEq)]
+#[derive(Debug, Error, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProjectErrorCode
 {
@@ -82,7 +82,7 @@ pub enum ProjectErrorCode
     InvalidSourceRootDir,
 }
 
-#[derive(Debug, Error, Serialize, PartialEq)]
+#[derive(Debug, Error, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DatabaseErrorCode
 {
@@ -99,41 +99,41 @@ pub enum DatabaseErrorCode
 
 impl ProjectErrorCode 
 {
-    fn as_str(&self) -> &'static str 
+    const fn as_str(&self) -> &'static str 
     {
         match self 
         {
-            ProjectErrorCode::ProjectNameTaken => "PROJECT_NAME_TAKEN",
-            ProjectErrorCode::OwnerAlreadyExists => "OWNER_ALREADY_EXISTS",
-            ProjectErrorCode::OwnerCannotBeParticipant => "OWNER_CANNOT_BE_PARTICIPANT",
-            ProjectErrorCode::InvalidProjectName => "INVALID_PROJECT_NAME",
-            ProjectErrorCode::InvalidImageUrl => "INVALID_IMAGE_URL",
-            ProjectErrorCode::ImagePullFailed => "IMAGE_PULL_FAILED",
-            ProjectErrorCode::ImageScanFailed(_) => "IMAGE_SCAN_FAILED",
-            ProjectErrorCode::ContainerCreationFailed => "CONTAINER_CREATION_FAILED",
-            ProjectErrorCode::DeleteFailed => "DELETE_FAILED",
-            ProjectErrorCode::GithubAccountNotLinked => "GITHUB_ACCOUNT_NOT_LINKED",
-            ProjectErrorCode::GithubRepoNotAccessible => "GITHUB_REPO_NOT_ACCESSIBLE",
-            ProjectErrorCode::GithubPackageNotPublic => "GITHUB_PACKAGE_NOT_PUBLIC",
-            ProjectErrorCode::ForbiddenEnvVar(_) => "FORBIDDEN_ENV_VAR",
-            ProjectErrorCode::InvalidVolumePath => "INVALID_VOLUME_PATH",
-            ProjectErrorCode::InvalidGithubUrl => "INVALID_GITHUB_URL",
-            ProjectErrorCode::ProjectCreationFailedWithDatabaseError => "PROJECT_CREATION_FAILED_WITH_DATABASE_ERROR",
-            ProjectErrorCode::InvalidSourceRootDir => "INVALID_SOURCE_ROOT_DIR",
+            Self::ProjectNameTaken => "PROJECT_NAME_TAKEN",
+            Self::OwnerAlreadyExists => "OWNER_ALREADY_EXISTS",
+            Self::OwnerCannotBeParticipant => "OWNER_CANNOT_BE_PARTICIPANT",
+            Self::InvalidProjectName => "INVALID_PROJECT_NAME",
+            Self::InvalidImageUrl => "INVALID_IMAGE_URL",
+            Self::ImagePullFailed => "IMAGE_PULL_FAILED",
+            Self::ImageScanFailed(_) => "IMAGE_SCAN_FAILED",
+            Self::ContainerCreationFailed => "CONTAINER_CREATION_FAILED",
+            Self::DeleteFailed => "DELETE_FAILED",
+            Self::GithubAccountNotLinked => "GITHUB_ACCOUNT_NOT_LINKED",
+            Self::GithubRepoNotAccessible => "GITHUB_REPO_NOT_ACCESSIBLE",
+            Self::GithubPackageNotPublic => "GITHUB_PACKAGE_NOT_PUBLIC",
+            Self::ForbiddenEnvVar(_) => "FORBIDDEN_ENV_VAR",
+            Self::InvalidVolumePath => "INVALID_VOLUME_PATH",
+            Self::InvalidGithubUrl => "INVALID_GITHUB_URL",
+            Self::ProjectCreationFailedWithDatabaseError => "PROJECT_CREATION_FAILED_WITH_DATABASE_ERROR",
+            Self::InvalidSourceRootDir => "INVALID_SOURCE_ROOT_DIR",
         }
     }
 }
 
 impl DatabaseErrorCode 
 {
-    fn as_str(&self) -> &'static str 
+    const fn as_str(&self) -> &'static str 
     {
         match self 
         {
-            DatabaseErrorCode::DatabaseAlreadyExists => "DATABASE_ALREADY_EXISTS",
-            DatabaseErrorCode::ProvisioningFailed => "PROVISIONING_FAILED",
-            DatabaseErrorCode::DeprovisioningFailed => "DEPROVISIONING_FAILED",
-            DatabaseErrorCode::NotFound => "NOT_FOUND",
+            Self::DatabaseAlreadyExists => "DATABASE_ALREADY_EXISTS",
+            Self::ProvisioningFailed => "PROVISIONING_FAILED",
+            Self::DeprovisioningFailed => "DEPROVISIONING_FAILED",
+            Self::NotFound => "NOT_FOUND",
         }
     }
 }
@@ -144,9 +144,9 @@ impl IntoResponse for AppError
     {
         let (status, body) = match self
         {
-            AppError::InternalServerError
-            | AppError::ExternalServiceError(_)
-            | AppError::ParsingError(_) =>
+            Self::InternalServerError
+            | Self::ExternalServiceError(_)
+            | Self::ParsingError(_) =>
             {
                 error!("--> SERVER ERROR (500): {:?}", self);
                 (
@@ -155,7 +155,7 @@ impl IntoResponse for AppError
                 )
             }
 
-            AppError::Unauthorized(message) =>
+            Self::Unauthorized(message) =>
             {
                 trace!("--> NOT AUTHORIZED (401): {}", message);
                 (
@@ -164,7 +164,7 @@ impl IntoResponse for AppError
                 )
             }
 
-            AppError::NotFound(ressource) =>
+            Self::NotFound(ressource) =>
             {
                 trace!("--> RESOURCE NOT FOUND (404): {}", ressource);
                 (
@@ -173,7 +173,7 @@ impl IntoResponse for AppError
                 )
             }
 
-            AppError::BadRequest(message) =>
+            Self::BadRequest(message) =>
             {
                 trace!("--> BAD REQUEST (400): {}", message);
                 (
@@ -182,7 +182,7 @@ impl IntoResponse for AppError
                 )
             }
 
-            AppError::DatabaseError(code) =>
+            Self::DatabaseError(code) =>
             {
                 trace!("--> DATABASE ERROR (400): {}", code);
                 let status = match code 
@@ -203,7 +203,7 @@ impl IntoResponse for AppError
                 )
             }
             
-            AppError::ProjectError(code) =>
+            Self::ProjectError(code) =>
             {
                 trace!("--> PROJECT ERROR (400): {}", code);
                 let status = match code 

@@ -81,9 +81,9 @@ async fn handle_docker_event(state: &AppState, event: bollard::models::EventMess
     {
         Some("create") => ContainerStatus::Created,
         Some("restart") => ContainerStatus::Restarting,
-        Some("start") | Some("unpause") => ContainerStatus::Running,
-        Some("stop") | Some("die") => ContainerStatus::Exited,
-        Some("kill") | Some("oom") => ContainerStatus::Dead,
+        Some("start" | "unpause") => ContainerStatus::Running,
+        Some("stop" | "die") => ContainerStatus::Exited,
+        Some("kill" | "oom") => ContainerStatus::Dead,
         Some("pause") => ContainerStatus::Paused,
         _ => return,
     };

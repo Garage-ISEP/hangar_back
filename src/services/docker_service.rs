@@ -109,7 +109,7 @@ pub async fn create_project_container(
     let mut volume_name_created: Option<String> = None;
     if let Some(path) = persistent_volume_path
     {
-        let volume_name = format!("hangar-data-{}", project_name);
+        let volume_name = format!("hangar-data-{project_name}");
 
         let options = VolumeCreateOptions
         {
@@ -168,16 +168,16 @@ pub async fn create_project_container(
 
     let env = env_vars.as_ref().map(|vars|
     {
-        vars.iter().map(|(k, v)| format!("{}={}", k, v)).collect()
+        vars.iter().map(|(k, v)| format!("{k}={v}")).collect()
     });
 
     let mut labels = HashMap::new();
     labels.insert("app".to_string(), config.app_prefix.clone());
     labels.insert("traefik.enable".to_string(), "true".to_string());
-    labels.insert(format!("traefik.http.routers.{}.rule", project_name), format!("Host(`{}`)", hostname));
-    labels.insert(format!("traefik.http.routers.{}.entrypoints", project_name), config.traefik_entrypoint.clone());
-    labels.insert(format!("traefik.http.routers.{}.tls.certresolver", project_name), config.traefik_cert_resolver.clone());
-    labels.insert(format!("traefik.http.services.{}.loadbalancer.server.port", project_name), "80".to_string());
+    labels.insert(format!("traefik.http.routers.{project_name}.rule"), format!("Host(`{hostname}`)"));
+    labels.insert(format!("traefik.http.routers.{project_name}.entrypoints"), config.traefik_entrypoint.clone());
+    labels.insert(format!("traefik.http.routers.{project_name}.tls.certresolver"), config.traefik_cert_resolver.clone());
+    labels.insert(format!("traefik.http.services.{project_name}.loadbalancer.server.port"), "80".to_string());
 
     let config = ContainerCreateBody 
     {
@@ -257,7 +257,7 @@ pub async fn remove_container(docker: &Docker, container_name: &str) -> Result<(
 
     match docker.stop_container(container_name, None::<StopContainerOptions>).await 
     {
-        Ok(_) => (),
+        Ok(()) => (),
         Err(bollard::errors::Error::DockerResponseServerError { status_code, .. }) if status_code == 404 || status_code == 304 =>
         {
             warn!("Container {} not found or already stopped. No action taken.", container_name);
@@ -270,7 +270,7 @@ pub async fn remove_container(docker: &Docker, container_name: &str) -> Result<(
 
     match docker.remove_container(container_name, None::<RemoveContainerOptions>).await 
     {
-        Ok(_) => (),
+        Ok(()) => (),
         Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => 
         {
             warn!("Container {} not found during removal. It might have been deleted already.", container_name);
@@ -313,7 +313,7 @@ pub async fn remove_volume_by_name(docker: &Docker, volume_name: &str) -> Result
     let options = Some(RemoveVolumeOptions { force: true });
     match docker.remove_volume(volume_name, options).await
     {
-        Ok(_) =>
+        Ok(()) =>
         {
             info!("Volume {} successfully removed.", volume_name);
             Ok(())
@@ -439,7 +439,7 @@ pub async fn get_container_metrics(docker: &Docker, container_name: &str) -> Res
     } 
     else 
     {
-        Err(AppError::NotFound(format!("No stats received for container {}", container_name)))
+        Err(AppError::NotFound(format!("No stats received for container {container_name}")))
     }
 }
 
@@ -461,7 +461,7 @@ fn calculate_cpu_percent(stats: &ContainerStatsResponse) -> f64
 
         let system_cpu_delta = (cpu_stats.system_cpu_usage? as f64) - (precpu_stats.system_cpu_usage? as f64);
 
-        let number_of_cpus = cpu_stats.online_cpus.unwrap_or(1) as f64;
+        let number_of_cpus = f64::from(cpu_stats.online_cpus.unwrap_or(1));
 
         if system_cpu_delta > 0.0 && cpu_delta > 0.0 
         {
@@ -507,7 +507,7 @@ pub fn create_tarball(path: &Path) -> Result<Vec<u8>, AppError>
         AppError::InternalServerError
     })?;
 
-    let tar_data = tar.into_inner().and_then(|gz| gz.finish()).map_err(|e| 
+    let tar_data = tar.into_inner().and_then(flate2::write::GzEncoder::finish).map_err(|e| 
     {
         error!("Failed to finish tarball creation: {}", e);
         AppError::InternalServerError

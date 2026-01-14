@@ -6,7 +6,7 @@ use tracing::{debug, error, warn};
 
 use crate::{error::AppError, state::AppState};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus
 {
@@ -155,7 +155,7 @@ async fn check_postgres_health(state: &AppState) -> ComponentHealth
                 status: HealthStatus::Unhealthy,
                 response_time_us: start.elapsed().as_micros() as u64,
                 details: None,
-                error: Some(format!("Database error: {}", e)),
+                error: Some(format!("Database error: {e}")),
             }
         }
         Err(_) =>
@@ -213,7 +213,7 @@ async fn check_mariadb_health(state: &AppState) -> ComponentHealth
                 status: HealthStatus::Unhealthy,
                 response_time_us: start.elapsed().as_micros() as u64,
                 details: None,
-                error: Some(format!("Database error: {}", e)),
+                error: Some(format!("Database error: {e}")),
             }
         }
         Err(_) =>
@@ -271,7 +271,7 @@ async fn check_docker_health(state: &AppState) -> ComponentHealth
                 status: HealthStatus::Unhealthy,
                 response_time_us: start.elapsed().as_micros() as u64,
                 details: None,
-                error: Some(format!("Docker daemon error: {}", e)),
+                error: Some(format!("Docker daemon error: {e}")),
             }
         }
         Err(_) =>

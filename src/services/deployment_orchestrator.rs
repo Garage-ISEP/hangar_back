@@ -10,8 +10,8 @@ use crate::state::AppState;
 /// Orchestrateur de déploiement pour un projet.
 ///
 /// Gère automatiquement l'émission d'événements SSE selon le contexte :
-/// - Création de projet (project_id = None) → canal "creation"
-/// - Mise à jour de projet (project_id = Some) → canal projet spécifique
+/// - Création de projet (`project_id` = None) → canal "creation"
+/// - Mise à jour de projet (`project_id` = Some) → canal projet spécifique
 pub struct DeploymentOrchestrator<'a>
 {
     state: &'a AppState,
@@ -22,7 +22,8 @@ pub struct DeploymentOrchestrator<'a>
 
 impl<'a> DeploymentOrchestrator<'a>
 {
-    pub fn for_creation(state: &'a AppState, project_name: String, user_login: String) -> Self
+    #[must_use] 
+    pub const fn for_creation(state: &'a AppState, project_name: String, user_login: String) -> Self
     {
         Self 
         {
@@ -33,7 +34,8 @@ impl<'a> DeploymentOrchestrator<'a>
         }
     }
 
-    pub fn for_update(
+    #[must_use] 
+    pub const fn for_update(
         state: &'a AppState,
         project_name: String,
         user_login: String,
@@ -49,38 +51,32 @@ impl<'a> DeploymentOrchestrator<'a>
         }
     }
 
-    pub fn set_project_id(&mut self, project_id: i32)
+    pub const fn set_project_id(&mut self, project_id: i32)
     {
         self.project_id = Some(project_id);
     }
 
     pub async fn emit_stage(&self, stage: DeploymentStage)
     {
-        match self.project_id
-        {
-            Some(id) =>
-            {
-                debug!(
-                    "Emitting stage {:?} for project '{}' (ID: {})",
-                    stage, self.project_name, id
-                );
-                emit_deployment_stage(self.state, id, self.project_name.clone(), stage).await;
-            }
-            None =>
-            {
-                debug!(
-                    "Emitting creation stage {:?} for project '{}' (user: {})",
-                    stage, self.project_name, self.user_login
-                );
-                emit_creation_deployment_stage(
-                    self.state,
-                    &self.user_login,
-                    self.project_name.clone(),
-                    stage,
-                    None,
-                )
-                .await;
-            }
+        if let Some(id) = self.project_id {
+            debug!(
+                "Emitting stage {:?} for project '{}' (ID: {})",
+                stage, self.project_name, id
+            );
+            emit_deployment_stage(self.state, id, self.project_name.clone(), stage).await;
+        } else {
+            debug!(
+                "Emitting creation stage {:?} for project '{}' (user: {})",
+                stage, self.project_name, self.user_login
+            );
+            emit_creation_deployment_stage(
+                self.state,
+                &self.user_login,
+                self.project_name.clone(),
+                stage,
+                None,
+            )
+            .await;
         }
     }
 
@@ -121,7 +117,7 @@ impl<'a> DeploymentOrchestrator<'a>
                     operation_name, self.project_name, e
                 );
 
-                let error_message = format!("{}", e);
+                let error_message = format!("{e}");
                 self.emit_stage(DeploymentStage::Failed 
                 {
                     error: error_message,
@@ -168,7 +164,7 @@ impl<'a> DeploymentOrchestrator<'a>
                     operation_name, self.project_name, e
                 );
 
-                let error_message = format!("{}", e);
+                let error_message = format!("{e}");
                 self.emit_stage(DeploymentStage::Failed {
                     error: error_message,
                     stage: operation_name.to_string(),

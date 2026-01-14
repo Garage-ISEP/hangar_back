@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 
 use crate::model::database::DatabaseDetailsResponse;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, sqlx::Type)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "project_source_type", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectSourceType 

@@ -57,7 +57,7 @@ pub async fn sse_all_handler(
 /// Handler SSE pour les événements d'un projet spécifique
 ///
 /// L'utilisateur doit être owner ou participant du projet.
-/// Endpoint: GET /api/sse/projects/{project_id}
+/// Endpoint: GET /`api/sse/projects/{project_id`}
 pub async fn sse_project_handler(
     State(state): State<AppState>,
     claims: Claims,
@@ -73,7 +73,7 @@ pub async fn sse_project_handler(
         claims.is_admin,
     ).await?.ok_or_else(|| 
     {
-        AppError::NotFound(format!("Project {} not found or you don't have access.", project_id))
+        AppError::NotFound(format!("Project {project_id} not found or you don't have access."))
     })?;
 
     let client_id: u128 = rand::random();
@@ -127,22 +127,18 @@ fn create_sse_stream(
                 let system_event = SseEvent::System(SystemEvent 
                 {
                     level: SystemEventLevel::Warning,
-                    message: format!("Connection slow: {} messages missed", n),
+                    message: format!("Connection slow: {n} messages missed"),
                     context: None,
                     timestamp: time::OffsetDateTime::now_utc(),
                 });
 
-                match event_to_sse(system_event)
-                {
-                    Ok(event) => Some(Ok(event)),
-                    Err(_) => None,
-                }
+                event_to_sse(system_event).map_or_else(|_| None, |event| Some(Ok(event)))
             }
         }
     })
 }
 
-/// Convertit un SseEvent en axum SSE Event
+/// Convertit un `SseEvent` en axum SSE Event
 fn event_to_sse(sse_event: SseEvent) -> Result<Event, serde_json::Error>
 {
     let event_type = sse_event.event_type();

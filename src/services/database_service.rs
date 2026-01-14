@@ -60,7 +60,7 @@ pub async fn provision_database(
         return Err(DatabaseErrorCode::DatabaseAlreadyExists.into());
     }
 
-    let db_name = format!("{}_{}", DB_PREFIX, owner_login);
+    let db_name = format!("{DB_PREFIX}_{owner_login}");
     let username = owner_login.to_string();
     let password = generate_password();
 
@@ -157,8 +157,7 @@ async fn execute_mariadb_provisioning(
     })?;
 
     let create_db_sql = format!(
-        "CREATE DATABASE `{}` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci",
-        db_name
+        "CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
     );
     sqlx::query(&create_db_sql)
         .execute(&mut *conn)
@@ -170,7 +169,7 @@ async fn execute_mariadb_provisioning(
         })?;
 
     let escaped_password = password.replace('\'', "\\'");
-    let create_user_sql = format!("CREATE USER `{}`@'%' IDENTIFIED BY '{}'", username, escaped_password);
+    let create_user_sql = format!("CREATE USER `{username}`@'%' IDENTIFIED BY '{escaped_password}'");
     sqlx::query(&create_user_sql)
         .execute(&mut *conn)
         .await
@@ -181,8 +180,7 @@ async fn execute_mariadb_provisioning(
         })?;
 
     let grant_sql = format!(
-        "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER, CREATE TEMPORARY TABLES, LOCK TABLES ON `{}`.* TO `{}`@'%'",
-        db_name, username
+        "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER, CREATE TEMPORARY TABLES, LOCK TABLES ON `{db_name}`.* TO `{username}`@'%'"
     );
     sqlx::query(&grant_sql)
         .execute(&mut *conn)
@@ -220,7 +218,7 @@ async fn execute_mariadb_deprovisioning(
 
     let mut conn = pool.acquire().await.map_err(|_| DatabaseErrorCode::DeprovisioningFailed)?;
     
-    sqlx::query(&format!("DROP DATABASE IF EXISTS `{}`", db_name))
+    sqlx::query(&format!("DROP DATABASE IF EXISTS `{db_name}`"))
     .execute(&mut *conn)
     .await
     .map_err(|e| 
@@ -229,7 +227,7 @@ async fn execute_mariadb_deprovisioning(
         DatabaseErrorCode::DeprovisioningFailed
     })?;
 
-    sqlx::query(&format!("DROP USER IF EXISTS `{}`@'%'", username))
+    sqlx::query(&format!("DROP USER IF EXISTS `{username}`@'%'"))
     .execute(&mut *conn)
     .await
     .map_err(|e| 
@@ -322,7 +320,7 @@ pub async fn provision_and_link_database_tx<'a>(
 ) -> Result<(), AppError>
 {
 
-    let db_name = format!("{}_{}", DB_PREFIX, owner_login);
+    let db_name = format!("{DB_PREFIX}_{owner_login}");
     let username = db_name.clone();
     let password = generate_password();
 

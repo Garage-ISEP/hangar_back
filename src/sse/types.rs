@@ -15,7 +15,8 @@ pub enum SseEvent
 
 impl SseEvent 
 {
-    pub fn event_type(&self) -> &'static str 
+    #[must_use] 
+    pub const fn event_type(&self) -> &'static str 
     {
         match self 
         {
@@ -26,6 +27,7 @@ impl SseEvent
         }
     }
 
+    #[must_use] 
     pub fn generate_id(&self) -> String 
     {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -48,7 +50,7 @@ pub struct SystemEvent
     pub timestamp: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SystemEventLevel 
 {
@@ -59,6 +61,7 @@ pub enum SystemEventLevel
 
 impl SystemEvent
 {
+    #[must_use] 
     pub fn info(message: String) -> Self
     {
         Self
@@ -70,6 +73,7 @@ impl SystemEvent
         }
     }
     
+    #[must_use] 
     pub fn warning(message: String) -> Self
     {
         Self
@@ -81,6 +85,7 @@ impl SystemEvent
         }
     }
     
+    #[must_use] 
     pub fn error(message: String) -> Self
     {
         Self
@@ -92,6 +97,7 @@ impl SystemEvent
         }
     }
     
+    #[must_use] 
     pub fn with_context(mut self, context: serde_json::Value) -> Self
     {
         self.context = Some(context);
@@ -110,7 +116,7 @@ pub struct DeploymentEvent
     pub timestamp: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeploymentStage 
 {
@@ -140,6 +146,7 @@ pub enum DeploymentStage
 
 impl DeploymentEvent 
 {
+    #[must_use] 
     pub fn new(project_id: i32, project_name: String, stage: DeploymentStage) -> Self 
     {
         Self 
@@ -164,7 +171,7 @@ pub struct ContainerStatusEvent
     pub timestamp: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerStatus
 {
@@ -212,6 +219,7 @@ impl From<Option<bollard::secret::ContainerStateStatusEnum>> for ContainerStatus
 
 impl ContainerStatusEvent
 {
+    #[must_use] 
     pub fn new(
         project_id: i32,
         project_name: String,
@@ -245,6 +253,7 @@ pub struct MetricsEvent
 
 impl MetricsEvent
 {
+    #[must_use] 
     pub fn new(project_id: i32, project_name: String, metrics: ProjectMetrics) -> Self
     {
         Self

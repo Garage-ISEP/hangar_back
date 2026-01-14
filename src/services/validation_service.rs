@@ -135,7 +135,7 @@ pub fn validate_source_root_dir(path: &str) -> Result<(), AppError>
     let normalized = std::path::Path::new(path);
     for component in normalized.components() 
     {
-        if let std::path::Component::ParentDir = component 
+        if component == std::path::Component::ParentDir 
         {
             return Err(ProjectErrorCode::InvalidSourceRootDir.into());
         }

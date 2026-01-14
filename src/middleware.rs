@@ -17,7 +17,7 @@ use crate::
 pub async fn auth(State(state): State<AppState>,jar: CookieJar, mut req: Request, next: Next) -> Result<Response, AppError> 
 {
    
-    let token = jar.get("auth_token").map(|cookie| cookie.value())
+    let token = jar.get("auth_token").map(axum_extra::extract::cookie::Cookie::value)
         .ok_or_else(|| AppError::Unauthorized("Authentication token missing.".to_string()))?;
 
     let token_data = jwt::validate_jwt(token, &state.config.jwt_secret)?;
@@ -42,7 +42,7 @@ impl<S> FromRequestParts<S> for Claims where S: Send + Sync,
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> 
     {
-        parts.extensions.get::<Claims>().cloned().ok_or_else(|| 
+        parts.extensions.get::<Self>().cloned().ok_or_else(|| 
         {
             tracing::error!("The Claims extractor was used on a route not protected by the authentication middleware.");
             AppError::InternalServerError

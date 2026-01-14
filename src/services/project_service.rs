@@ -97,7 +97,7 @@ pub async fn delete_project_by_id(pool: &PgPool, project_id: i32) -> Result<(), 
 
     if result.rows_affected() == 0 
     {
-        return Err(AppError::NotFound(format!("Project with id {} not found for deletion.", project_id)));
+        return Err(AppError::NotFound(format!("Project with id {project_id} not found for deletion.")));
     }
 
     Ok(())
@@ -107,7 +107,7 @@ const SELECT_PROJECT_FIELDS: &str = "SELECT id, name, owner, container_name, sou
 
 pub async fn get_projects_by_owner(pool: &PgPool, owner: &str) -> Result<Vec<Project>, AppError> 
 {
-    let query = format!("{} WHERE owner = $1 ORDER BY created_at DESC", SELECT_PROJECT_FIELDS);
+    let query = format!("{SELECT_PROJECT_FIELDS} WHERE owner = $1 ORDER BY created_at DESC");
     sqlx::query_as::<_, Project>(&query)
         .bind(owner)
         .fetch_all(pool)
@@ -128,7 +128,7 @@ pub async fn get_project_by_id_and_owner(
 {
     if is_admin 
     {
-        let query = format!("{} WHERE id = $1", SELECT_PROJECT_FIELDS);
+        let query = format!("{SELECT_PROJECT_FIELDS} WHERE id = $1");
         return sqlx::query_as::<_, Project>(&query)
             .bind(project_id)
             .fetch_optional(pool)
@@ -140,7 +140,7 @@ pub async fn get_project_by_id_and_owner(
             });
     }
 
-    let query = format!("{} WHERE id = $1 AND owner = $2", SELECT_PROJECT_FIELDS);
+    let query = format!("{SELECT_PROJECT_FIELDS} WHERE id = $1 AND owner = $2");
     sqlx::query_as::<_, Project>(&query)
         .bind(project_id)
         .bind(owner)
@@ -181,7 +181,7 @@ pub async fn get_project_by_id_for_user(
 {
     if is_admin 
     {
-        return sqlx::query_as::<_, Project>(&format!("{} WHERE id = $1", SELECT_PROJECT_FIELDS))
+        return sqlx::query_as::<_, Project>(&format!("{SELECT_PROJECT_FIELDS} WHERE id = $1"))
             .bind(project_id)
             .fetch_optional(pool)
             .await
@@ -224,7 +224,7 @@ pub async fn get_project_participants(pool: &PgPool, project_id: i32) -> Result<
 
 pub async fn get_all_projects(pool: &PgPool) -> Result<Vec<Project>, AppError> 
 {
-    let query = format!("{} ORDER BY created_at DESC", SELECT_PROJECT_FIELDS);
+    let query = format!("{SELECT_PROJECT_FIELDS} ORDER BY created_at DESC");
     sqlx::query_as::<_, Project>(&query)
         .fetch_all(pool)
         .await
@@ -418,7 +418,7 @@ pub async fn get_project_by_container_name(
     container_name: &str,
 ) -> Result<Option<Project>, AppError> 
 {
-    sqlx::query_as::<_, Project>(&format!("{} WHERE container_name = $1", SELECT_PROJECT_FIELDS))
+    sqlx::query_as::<_, Project>(&format!("{SELECT_PROJECT_FIELDS} WHERE container_name = $1"))
         .bind(container_name)
         .fetch_optional(pool)
         .await
@@ -436,7 +436,7 @@ pub async fn get_projects_by_ids(pool: &PgPool, ids: &[i32]) -> Result<Vec<Proje
         return Ok(Vec::new());
     }
 
-    let query = format!("{} WHERE id = ANY($1)", SELECT_PROJECT_FIELDS);
+    let query = format!("{SELECT_PROJECT_FIELDS} WHERE id = ANY($1)");
     sqlx::query_as::<_, Project>(&query)
         .bind(ids)
         .fetch_all(pool)

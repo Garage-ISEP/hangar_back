@@ -17,6 +17,7 @@ pub struct InnerState
 
 impl InnerState 
 {
+    #[must_use] 
     pub fn new(config: Config, docker_client: Docker, db_pool: PgPool, mariadb_pool: MySqlPool) -> AppState 
     {
         Arc::new(Self 

@@ -45,7 +45,7 @@ async fn main()
     info!("🚀 Applying database migrations...");
     match sqlx::migrate!("./migrations").run(&db_pool).await 
     {
-        Ok(_) => info!("✅ Database migrations applied successfully."),
+        Ok(()) => info!("✅ Database migrations applied successfully."),
         Err(e) => 
         {
             tracing::error!("❌ Failed to apply database migrations: {}", e);
@@ -130,8 +130,8 @@ async fn shutdown_signal(shutdown_tx: tokio::sync::broadcast::Sender<()>)
 
     tokio::select! 
     {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        () = ctrl_c => {},
+        () = terminate => {},
     }
 
     warn!("Shutdown signal received, stopping background tasks...");
