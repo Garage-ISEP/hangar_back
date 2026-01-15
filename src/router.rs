@@ -25,8 +25,6 @@ pub fn create_router(state: AppState) -> Router
                 .layer(CorsLayer::permissive());
     
     let sse_routes = Router::new()
-        .route("/api/sse/admin", get(handlers::sse_handler::sse_admin_handler))
-        .route("/api/sse/all", get(handlers::sse_handler::sse_all_handler))
         .route("/api/sse/projects/{project_id}", get(handlers::sse_handler::sse_project_handler))
         .route("/api/sse/creation", get(handlers::sse_handler::sse_creation_handler))
         .route_layer(axum_middleware::from_fn_with_state(state.clone(), middleware::auth))

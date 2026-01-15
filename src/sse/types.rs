@@ -243,10 +243,7 @@ pub struct MetricsEvent
 {
     pub project_id: i32,
     pub project_name: String,
-
-    #[serde(flatten)]
     pub metrics: ProjectMetrics,
-    
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
 }

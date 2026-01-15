@@ -20,6 +20,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::error::{AppError, ProjectErrorCode};
 use crate::model::project::{GlobalMetrics, ProjectMetrics};
+use crate::sse::types::ContainerStatus;
 use bollard::models::ContainerInspectResponse;
 
 pub async fn pull_image(docker: &Docker, image_url: &str, credentials: Option<DockerCredentials>) -> Result<(), BollardError> 
@@ -404,6 +405,28 @@ pub async fn get_container_logs(docker: &Docker, container_name: &str, tail: &st
     Ok(log_entries.join(""))
 }
 
+// Used only for initial status checks
+pub async fn get_container_status(docker: &Docker, container_name: &str) -> Result<Option<ContainerStatus>, AppError> 
+{
+    match docker.inspect_container(container_name, None::<InspectContainerOptions>).await 
+    {
+        Ok(details) => 
+        {
+            let status = details.state.and_then(|s| s.status).into();
+            Ok(Some(status))
+        },
+        Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => 
+        {
+            Ok(None)
+        },
+        Err(e) => 
+        {
+            error!("Failed to inspect container '{}': {}", container_name, e);
+            Err(AppError::InternalServerError)
+        }
+    }
+}
+
 pub async fn get_container_metrics(docker: &Docker, container_name: &str) -> Result<ProjectMetrics, AppError> 
 {
     let mut stream = docker.stats(container_name, Some(StatsOptions 
@@ -417,9 +440,7 @@ pub async fn get_container_metrics(docker: &Docker, container_name: &str) -> Res
         match stats_result 
         {
             Ok(stats) => 
-            {
-                debug!("Received stats for container '{}': {:?}", container_name, stats);
-                
+            {   
                 let cpu_usage = calculate_cpu_percent(&stats);
                 let (memory_usage, memory_limit) = calculate_memory(&stats);
 

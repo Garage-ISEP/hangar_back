@@ -183,7 +183,7 @@ impl<'a> DeploymentOrchestrator<'a>
         
         let stage = DeploymentStage::Completed { container_name };
         
-        debug!("Emitting creation completion for project '{}' (ID: {}, user: {})", self.project_name, project_id, self.user_login);
+        debug!("Emitting completion for project '{}' (ID: {}, user: {})", self.project_name, project_id, self.user_login);
         emit_creation_deployment_stage
         (
             self.state,

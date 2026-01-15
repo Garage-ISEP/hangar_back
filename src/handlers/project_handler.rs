@@ -189,9 +189,10 @@ pub async fn deploy_project_handler(
         let _ = docker_service::remove_container(&state.docker_client, &container_name).await;
         if let Some(volume_name) = &volume_name
         {
-            docker_service::remove_volume_by_name(&state.docker_client, volume_name).await?;
+            let _ = docker_service::remove_volume_by_name(&state.docker_client, volume_name).await;
         }
         remove_image_best_effort(&state, &deployed_image_digest).await;
+        return Err(e);
     }
 
     let new_project = persist_project_with_rollback_and_events(
@@ -533,14 +534,27 @@ pub async fn update_env_vars_handler(
 
     let project = get_project_for_user(&state, project_id, user_login, claims.is_admin).await?;
 
+    let orchestrator = DeploymentOrchestrator::for_update
+    (
+        &state,
+        project.name.clone(),
+        user_login.clone(),
+        project.id,
+    );
+
+    orchestrator.emit_stage(DeploymentStage::Started).await;
+
     let deployment = create_blue_green_deployment_for_env_update(&state, &project);
 
-    execute_env_vars_blue_green_deployment(
+    execute_env_vars_blue_green_deployment_with_events(
         &state,
+        &orchestrator,
         &project,
         &deployment,
         &payload.env_vars,
     ).await?;
+
+    orchestrator.emit_completed(deployment.new_container_name, project_id).await;
 
     Ok(create_success_response("Environment variables updated successfully. The project has been restarted."))
 }
@@ -1443,7 +1457,7 @@ async fn create_new_container_for_deployment(
 {
     let owned_env_vars: Option<HashMap<String, String>> = env_vars.cloned();
 
-    match docker_service::create_project_container(
+    return match docker_service::create_project_container(
         &state.docker_client,
         &deployment.new_container_name,
         &project.name,
@@ -1453,16 +1467,14 @@ async fn create_new_container_for_deployment(
         &project.persistent_volume_path,
     ).await
     {
-        Ok(volume) => Ok(volume),
+        Ok(_) => Ok(()),
         Err(e) =>
         {
             error!("Failed to create new container for project '{}'. Aborting update.", project.name);
             let _ = docker_service::remove_image(&state.docker_client, &deployment.new_image_tag).await;
             Err(e)
         }
-    }?;
-
-    Ok(())
+    };
 }
 
 async fn update_project_metadata(
@@ -1525,8 +1537,9 @@ async fn cleanup_old_deployment(
     });
 }
 
-async fn execute_env_vars_blue_green_deployment(
+async fn execute_env_vars_blue_green_deployment_with_events(
     state: &AppState,
+    orchestrator: &DeploymentOrchestrator<'_>,
     project: &crate::model::project::Project,
     deployment: &BlueGreenDeployment,
     env_vars: &HashMap<String, String>,
@@ -1537,31 +1550,43 @@ async fn execute_env_vars_blue_green_deployment(
         deployment.new_container_name, project.name
     );
 
-    docker_service::create_project_container(
-        &state.docker_client,
-        &deployment.new_container_name,
-        &project.name,
-        &project.deployed_image_tag,
-        &state.config,
-        &Some(env_vars.clone()),
-        &project.persistent_volume_path,
+    orchestrator.with_stages
+    (
+        DeploymentStage::CreatingContainer,
+        DeploymentStage::ContainerCreated,
+        "New container creation",
+        docker_service::create_project_container(
+            &state.docker_client,
+            &deployment.new_container_name,
+            &project.name,
+            &project.deployed_image_tag,
+            &state.config,
+            &Some(env_vars.clone()),
+            &project.persistent_volume_path,
+        ),
     ).await
     .inspect_err(|_|
     {
         error!("Failed to recreate container for project '{}' during env update. Aborting.", project.name);
     })?;
 
-    wait_for_container_health(state, &deployment.new_container_name, 10).await
-        .inspect_err(|_|
+    orchestrator.with_stages
+    (
+        DeploymentStage::WaitingHealthCheck,
+        DeploymentStage::HealthCheckPassed,
+        "Health check",
+        wait_for_container_health(state, &deployment.new_container_name, 10),
+    ).await
+    .inspect_err(|_|
+    {
+        let docker = state.docker_client.clone();
+        let container = deployment.new_container_name.clone();
+        
+        tokio::spawn(async move
         {
-            let docker = state.docker_client.clone();
-            let container = deployment.new_container_name.clone();
-            
-            tokio::spawn(async move
-            {
-                let _ = docker_service::remove_container(&docker, &container).await;
-            });
-        })?;
+            let _ = docker_service::remove_container(&docker, &container).await;
+        });
+    })?;
 
     project_service::update_project_container_name(
         &state.db_pool,
@@ -1575,6 +1600,8 @@ async fn execute_env_vars_blue_green_deployment(
         env_vars,
         &state.config.encryption_key,
     ).await?;
+
+    orchestrator.emit_stage(DeploymentStage::CleaningUp).await;
 
     info!("Removing old container '{}'", deployment.old_container_name);
     

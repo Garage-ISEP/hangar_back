@@ -11,48 +11,10 @@ use tracing::{debug, error, warn};
 
 use crate::error::AppError;
 use crate::services::jwt::Claims;
-use crate::services::project_service;
+use crate::services::{docker_service, project_service};
+use crate::sse::emitter::{emit_container_status, emit_metrics};
 use crate::state::AppState;
 use crate::sse::types::{SseEvent, SystemEvent, SystemEventLevel};
-
-/// Handler SSE pour le canal admin
-///
-/// Accessible uniquement aux admins. Reçoit les événements admin uniquement.
-/// Endpoint: GET /api/sse/admin
-pub async fn sse_admin_handler(
-    State(state): State<AppState>,
-    claims: Claims,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError>
-{
-    if !claims.is_admin
-    {
-        return Err(AppError::Unauthorized(
-            "Admin privileges required for admin SSE stream.".to_string(),
-        ));
-    }
-
-    let client_id: u128 = rand::random();
-    let rx = state.sse_manager.subscribe_admin();
-    let stream = create_sse_stream(rx, client_id);
-    debug!("Admin '{}' connected to admin SSE stream (client: {})", claims.sub, client_id);
-    Ok(Sse::new(stream).keep_alive(create_keep_alive()))
-}
-
-/// Handler SSE pour le canal "all" (tous les utilisateurs)
-///
-/// Reçoit les annonces globales, maintenance, etc.
-/// Endpoint: GET /api/sse/all
-pub async fn sse_all_handler(
-    State(state): State<AppState>,
-    claims: Claims,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError>
-{
-    let client_id: u128 = rand::random();
-    let rx = state.sse_manager.subscribe_all();
-    let stream = create_sse_stream(rx, client_id);
-    debug!("User '{}' connected to 'all' SSE stream (client: {})", claims.sub, client_id);
-    Ok(Sse::new(stream).keep_alive(create_keep_alive()))
-}
 
 /// Handler SSE pour les événements d'un projet spécifique
 ///
@@ -80,6 +42,7 @@ pub async fn sse_project_handler(
     let rx = state.sse_manager.subscribe_to_project(project_id).await;
     let stream = create_sse_stream(rx, client_id);
     debug!("User '{}' connected to SSE stream for project '{}' (client: {})", user_login, project.name, client_id);
+    send_initial_project_state(state.clone(), project_id, project.clone());
     Ok(Sse::new(stream).keep_alive(create_keep_alive()))
 }
 
@@ -152,4 +115,65 @@ fn event_to_sse(sse_event: SseEvent) -> Result<Event, serde_json::Error>
 fn create_keep_alive() -> KeepAlive
 {
     KeepAlive::new().interval(Duration::from_secs(5)).text("keep-alive")
+}
+
+fn send_initial_project_state(
+    state: AppState,
+    project_id: i32,
+    project: crate::model::project::Project,
+)
+{
+    tokio::spawn(async move 
+    {   
+        // Petit délai pour laisser la connexion SSE s'établir
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        match docker_service::get_container_status(&state.docker_client, &project.container_name).await
+        {
+            Ok(Some(status)) =>
+            {
+                debug!("Sending initial status {:?} for project '{}'", status, project.name);
+                emit_container_status(
+                    &state,
+                    project_id,
+                    project.name.clone(),
+                    project.container_name.clone(),
+                    status,
+                ).await;
+            }
+            Ok(None) =>
+            {
+                warn!("Container '{}' not found when sending initial status", project.container_name);
+                emit_container_status(
+                    &state,
+                    project_id,
+                    project.name.clone(),
+                    project.container_name.clone(),
+                    crate::sse::types::ContainerStatus::Unknown,
+                ).await;
+            }
+            Err(e) =>
+            {
+                error!("Failed to get initial status for '{}': {}", project.container_name, e);
+            }
+        }
+        
+        match docker_service::get_container_metrics(&state.docker_client, &project.container_name).await
+        {
+            Ok(metrics) =>
+            {
+                debug!("Sending initial metrics for project '{}'", project.name);
+                emit_metrics(
+                    &state,
+                    project_id,
+                    project.name.clone(),
+                    metrics,
+                ).await;
+            }
+            Err(e) =>
+            {
+                debug!("Could not get initial metrics for '{}'. Maybe stopped? : {}", project.container_name, e);
+            }
+        }
+    });
 }

@@ -7,7 +7,7 @@ use tokio_stream::StreamExt;
 use tracing::{info, warn};
 use tracing::{debug, error};
 
-use crate::sse::emitter::{emit_container_crashed_to_admin, emit_container_status};
+use crate::sse::emitter::emit_container_status;
 use crate::sse::emitter::emit_metrics;
 use crate::sse::types::ContainerStatus;
 use crate::{services::project_service, state::AppState};
@@ -108,16 +108,6 @@ async fn handle_docker_event(state: &AppState, event: bollard::models::EventMess
                 container_name.clone(),
                 action.clone(),
             ).await;
-            
-            if action == ContainerStatus::Dead 
-            {
-                emit_container_crashed_to_admin(
-                    state,
-                    project.id,
-                    project.name,
-                    container_name,
-                );
-            }
         }
     }
 }
