@@ -9,12 +9,6 @@ const BROADCAST_CAPACITY: usize = 1000;
 #[derive(Clone)]
 pub struct SseManager 
 {
-    /// Canal pour les admins (dashboard admin)
-    admin_tx: broadcast::Sender<SseEvent>,
-    
-    /// Canal pour tous les utilisateurs (notifications globales)
-    all_tx: broadcast::Sender<SseEvent>,
-
     /// Canaux spécifiques par projet (`project_id` -> sender)
     project_channels: Arc<RwLock<HashMap<i32, broadcast::Sender<SseEvent>>>>,
 
@@ -28,28 +22,11 @@ impl SseManager
     #[must_use] 
     pub fn new() -> Self 
     {
-        let (admin_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        let (all_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-
         Self 
         {
-            admin_tx,
-            all_tx,
             project_channels: Arc::new(RwLock::new(HashMap::new())),
             creation_channels: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    #[must_use] 
-    pub fn admin_subscriber_count(&self) -> usize
-    {
-        self.admin_tx.receiver_count()
-    }
-
-    #[must_use] 
-    pub fn all_subscriber_count(&self) -> usize
-    {
-        self.all_tx.receiver_count()
     }
 
     pub async fn project_subscriber_count(&self, project_id: i32) -> usize 
@@ -70,69 +47,6 @@ impl SseManager
     {
         let map = self.creation_channels.read().await;
         map.len()
-    }
-
-    // ========================================================================
-    // Émission d'événements
-    // ========================================================================
-    
-    /// Émet un événement visible uniquement par les admins
-    /// 
-    /// Cas d'usage :
-    /// - Erreurs sur un projet
-    /// - Métriques globales de la plateforme
-    /// - Projets actifs/inactifs
-    /// - Alertes système
-    pub fn emit_to_admin(&self, event: SseEvent) 
-    {
-        let subscriber_count = self.admin_tx.receiver_count();
-
-        if subscriber_count == 0 
-        {
-            debug!("No admin subscribers, event dropped: {:?}", event.event_type());
-            return;
-        }
-
-        match self.admin_tx.send(event.clone()) 
-        {
-            Ok(count) => 
-            {
-                debug!("Admin event '{}' sent to {} admin(s)", event.event_type(), count);
-            }
-            Err(e) => 
-            {
-                error!("Failed to send admin event: {:?}", e);
-            }
-        }
-    }
-
-    /// Émet un événement visible par tous les utilisateurs connectés
-    /// 
-    /// Cas d'usage :
-    /// - Maintenance planifiée
-    /// - Annonces générales
-    /// - Alertes globales
-    pub fn emit_to_all(&self, event: SseEvent)
-    {
-        let subscriber_count = self.all_tx.receiver_count();
-        
-        if subscriber_count == 0
-        {
-            debug!("No subscribers on 'all' channel, event dropped: {:?}", event.event_type());
-            return;
-        }
-        
-        match self.all_tx.send(event.clone())
-        {
-            Ok(count) =>
-            {
-                info!("Global event '{}' sent to {} user(s)", event.event_type(), count);
-            }
-            Err(e) =>
-            {
-                error!("Failed to send global event: {:?}", e);
-            }
-        }
     }
 
     /// Émet un événement sur le canal d'un projet spécifique
@@ -226,22 +140,6 @@ impl SseManager
                 error!("Failed to send creation event to '{}': {:?}", user_login, e);
             }
         }
-    }
-
-    /// S'abonne au canal admin (réservé aux admins)
-    pub fn subscribe_admin(&self) -> broadcast::Receiver<SseEvent> 
-    {
-        let rx = self.admin_tx.subscribe();
-        info!("New admin SSE subscription (total: {})", self.admin_subscriber_count());
-        rx
-    }
-
-    /// S'abonne au canal "all" (tous les utilisateurs)
-    pub fn subscribe_all(&self) -> broadcast::Receiver<SseEvent>
-    {
-        let rx = self.all_tx.subscribe();
-        info!("New 'all' SSE subscription (total: {})", self.all_subscriber_count());
-        rx
     }
 
     /// S'abonne aux événements d'un projet spécifique
@@ -386,8 +284,6 @@ impl SseManager
 
         SseManagerStats
         {
-            admin_subscribers: self.admin_subscriber_count(),
-            all_subscribers: self.all_subscriber_count(),
             active_project_channels: self.active_project_channels().await,
             active_creation_channels: self.active_creation_channels().await,
             total_project_subscribers,
@@ -416,8 +312,6 @@ impl Default for SseManager
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SseManagerStats 
 {
-    pub admin_subscribers: usize,
-    pub all_subscribers: usize,
     pub active_project_channels: usize,
     pub active_creation_channels: usize,
     pub total_project_subscribers: usize,

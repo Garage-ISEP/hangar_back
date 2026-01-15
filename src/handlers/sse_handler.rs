@@ -15,45 +15,6 @@ use crate::services::project_service;
 use crate::state::AppState;
 use crate::sse::types::{SseEvent, SystemEvent, SystemEventLevel};
 
-/// Handler SSE pour le canal admin
-///
-/// Accessible uniquement aux admins. Reçoit les événements admin uniquement.
-/// Endpoint: GET /api/sse/admin
-pub async fn sse_admin_handler(
-    State(state): State<AppState>,
-    claims: Claims,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError>
-{
-    if !claims.is_admin
-    {
-        return Err(AppError::Unauthorized(
-            "Admin privileges required for admin SSE stream.".to_string(),
-        ));
-    }
-
-    let client_id: u128 = rand::random();
-    let rx = state.sse_manager.subscribe_admin();
-    let stream = create_sse_stream(rx, client_id);
-    debug!("Admin '{}' connected to admin SSE stream (client: {})", claims.sub, client_id);
-    Ok(Sse::new(stream).keep_alive(create_keep_alive()))
-}
-
-/// Handler SSE pour le canal "all" (tous les utilisateurs)
-///
-/// Reçoit les annonces globales, maintenance, etc.
-/// Endpoint: GET /api/sse/all
-pub async fn sse_all_handler(
-    State(state): State<AppState>,
-    claims: Claims,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError>
-{
-    let client_id: u128 = rand::random();
-    let rx = state.sse_manager.subscribe_all();
-    let stream = create_sse_stream(rx, client_id);
-    debug!("User '{}' connected to 'all' SSE stream (client: {})", claims.sub, client_id);
-    Ok(Sse::new(stream).keep_alive(create_keep_alive()))
-}
-
 /// Handler SSE pour les événements d'un projet spécifique
 ///
 /// L'utilisateur doit être owner ou participant du projet.
